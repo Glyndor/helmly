@@ -185,7 +185,15 @@ pub async fn rotate_wireguard_psks(state: &AppState, triggered_by: Uuid) -> Resu
         let signed_val = serde_json::to_value(&signed).unwrap_or_default();
 
         match ws_hub::push_command(state, agent.id, signed_val).await {
-            Some(_) => tracing::info!(agent_id = %agent.id, "WireGuard PSK rotated"),
+            Some(resp) => {
+                let ok = resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+                if ok {
+                    tracing::info!(agent_id = %agent.id, "WireGuard PSK rotated");
+                } else {
+                    let err = resp.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    tracing::warn!(agent_id = %agent.id, error = err, "WireGuard PSK rotation: agent returned error");
+                }
+            }
             None => tracing::warn!(agent_id = %agent.id, "WireGuard PSK rotation: agent WS unavailable — will retry on reconnect"),
         }
     }
