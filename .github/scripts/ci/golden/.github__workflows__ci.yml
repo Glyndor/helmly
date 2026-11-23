@@ -364,11 +364,21 @@ jobs:
         if: env.PLAN != 'false'
         run: sqlx migrate run --source dashboard/server/migrations
 
+      # The tests of the release verifiers run the Python of the install and update scripts, which
+      # needs the distribution's cryptography module. REQUIRE_PY_CRYPTO makes them fail, not skip,
+      # if it is missing, and the interpreter is named because the runner has more than one.
+      - name: Install the Python cryptography module
+        if: env.PLAN != 'false'
+        working-directory: ${{ github.workspace }}
+        run: sudo apt-get install -y --no-install-recommends python3-cryptography
+
       - name: test
         if: env.PLAN != 'false'
         run: cargo test --locked --package helmly-dashboard-server -- --test-threads=1
         env:
           REDIS_URL: redis://localhost:6379
+          REQUIRE_PY_CRYPTO: "1"
+          HELMLY_TEST_PYTHON: /usr/bin/python3
 
   # ---- ui: cheap tier --------------------------------------------------------
 

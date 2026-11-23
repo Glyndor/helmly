@@ -102,6 +102,7 @@ EXPECTED_SUITES = {
     "internal/dashboard/server/.sqlx/query-x.json": {"server"},
     "internal/dashboard/server/migrations/001_x.sql": {"server"},
     "internal/dashboard/server/src/main.rs": {"server"},
+    "internal/dashboard/release-verify-key.b64": {"server", "shell"},
     "internal/dashboard/server/tests/auth.rs": {"server"},
     ".github/scripts/audit-urls.py": {"server"},
     "internal/dashboard/ui/package.json": {"ui"},

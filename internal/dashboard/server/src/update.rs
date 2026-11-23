@@ -370,8 +370,11 @@ pub fn spawn_startup_health_guard() {
 }
 
 fn verify_signature(binary: &[u8], sig_bytes: &[u8]) -> Result<()> {
-    let key_bytes = load_release_verify_key()?;
-    let key = VerifyingKey::from_bytes(&key_bytes).context("parse release verify key")?;
+    verify_with_key(&load_release_verify_key()?, binary, sig_bytes)
+}
+
+fn verify_with_key(key_bytes: &[u8; 32], binary: &[u8], sig_bytes: &[u8]) -> Result<()> {
+    let key = VerifyingKey::from_bytes(key_bytes).context("parse release verify key")?;
     let sig_arr: [u8; 64] = sig_bytes
         .try_into()
         .map_err(|_| anyhow::anyhow!("signature must be 64 bytes, got {}", sig_bytes.len()))?;
@@ -380,12 +383,18 @@ fn verify_signature(binary: &[u8], sig_bytes: &[u8]) -> Result<()> {
         .context("Ed25519 signature invalid")
 }
 
-const RELEASE_VERIFY_KEY_B64: &str = "APh+kh61dJeT0HzG+KQXELzDjK4ccvqY9K+FptOZ3+Y=";
+/// The release verification key, base64 without padding. It is the file
+/// `internal/dashboard/release-verify-key.b64`, the one key every Glyndor product uses, and
+/// `tests/release_key.rs` checks that the two shell verifiers and `install.sh` carry the same one.
+const RELEASE_VERIFY_KEY_FILE: &str = include_str!("../../release-verify-key.b64");
 
 fn load_release_verify_key() -> Result<[u8; 32]> {
-    use base64ct::{Base64, Encoding};
-    let bytes = Base64::decode_vec(RELEASE_VERIFY_KEY_B64)
-        .context("decode hardcoded release verify key")?;
+    decode_verify_key(RELEASE_VERIFY_KEY_FILE.trim())
+}
+
+fn decode_verify_key(b64: &str) -> Result<[u8; 32]> {
+    use base64ct::{Base64Unpadded, Encoding};
+    let bytes = Base64Unpadded::decode_vec(b64).context("decode release verify key")?;
     bytes
         .try_into()
         .map_err(|_| anyhow::anyhow!("release verify key must be 32 bytes"))
@@ -532,5 +541,89 @@ mod tests {
         assert!(!is_blocked_ip(&IpAddr::V6(Ipv6Addr::new(
             0x2606, 0x4700, 0, 0, 0, 0, 0, 0x1111
         ))));
+    }
+
+    // ---- release signature verification ------------------------------------
+
+    use ed25519_dalek::{Signer, SigningKey};
+    use rand::Rng;
+
+    fn random_key() -> SigningKey {
+        let mut seed = [0u8; 32];
+        rand::rng().fill_bytes(&mut seed);
+        SigningKey::from_bytes(&seed)
+    }
+
+    #[test]
+    fn the_embedded_key_is_the_file_and_is_32_bytes() {
+        let key = load_release_verify_key().expect("embedded key decodes");
+        assert_eq!(key.len(), 32);
+        assert!(VerifyingKey::from_bytes(&key).is_ok());
+        assert!(
+            !RELEASE_VERIFY_KEY_FILE.trim().contains('='),
+            "stored without padding"
+        );
+    }
+
+    #[test]
+    fn a_padded_or_short_key_is_refused() {
+        assert!(decode_verify_key("HFv7vg5FCY7YyKUDbJhaQSfB9SboJGSblJtFbLmLHzM=").is_err());
+        assert!(decode_verify_key("AAAA").is_err());
+        assert!(decode_verify_key("").is_err());
+    }
+
+    #[test]
+    fn a_good_signature_verifies() {
+        let key = random_key();
+        let data = b"release payload";
+        let sig = key.sign(data).to_bytes();
+        assert!(verify_with_key(&key.verifying_key().to_bytes(), data, &sig).is_ok());
+    }
+
+    #[test]
+    fn an_absent_signature_is_refused() {
+        let key = random_key();
+        assert!(verify_with_key(&key.verifying_key().to_bytes(), b"payload", &[]).is_err());
+    }
+
+    #[test]
+    fn a_truncated_or_padded_signature_is_refused() {
+        let key = random_key();
+        let sig = key.sign(b"payload").to_bytes();
+        let verifying = key.verifying_key().to_bytes();
+        assert!(verify_with_key(&verifying, b"payload", &sig[..63]).is_err());
+        let mut long = sig.to_vec();
+        long.push(0);
+        assert!(verify_with_key(&verifying, b"payload", &long).is_err());
+    }
+
+    #[test]
+    fn an_altered_payload_is_refused() {
+        let key = random_key();
+        let sig = key.sign(b"payload").to_bytes();
+        assert!(verify_with_key(&key.verifying_key().to_bytes(), b"payloaD", &sig).is_err());
+    }
+
+    #[test]
+    fn an_altered_signature_is_refused() {
+        let key = random_key();
+        let mut sig = key.sign(b"payload").to_bytes();
+        sig[10] ^= 0x01;
+        assert!(verify_with_key(&key.verifying_key().to_bytes(), b"payload", &sig).is_err());
+    }
+
+    #[test]
+    fn a_signature_of_another_key_is_refused() {
+        let signer = random_key();
+        let other = random_key();
+        let sig = signer.sign(b"payload").to_bytes();
+        assert!(verify_with_key(&other.verifying_key().to_bytes(), b"payload", &sig).is_err());
+    }
+
+    #[test]
+    fn the_embedded_key_refuses_a_signature_of_an_unrelated_key() {
+        let sig = random_key().sign(b"payload").to_bytes();
+        assert!(verify_signature(b"payload", &sig).is_err());
+        assert!(verify_signature(b"payload", &[]).is_err());
     }
 }
