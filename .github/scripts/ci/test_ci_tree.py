@@ -4,6 +4,7 @@
 """
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -163,15 +164,33 @@ class TheJob(unittest.TestCase):
         step = self.job["steps"][1]
         self.assertEqual(step["env"], {"EVENT": "${{ github.event_name }}", "BASE_SHA": "${{ github.event.pull_request.base.sha }}"})
         run = step["run"]
-        self.assertIn('git show "$BASE_SHA:.github/scripts/ci/tree_checks.py" > "$tmp/tree_checks.py"', run)
-        self.assertIn('python3 "$tmp/tree_checks.py" || bad=1', run)
-        self.assertIn("python3 .github/scripts/ci/tree_checks.py || bad=1", run)
+        self.assertIn('git cat-file -e "$BASE_SHA^{commit}" ||', run)
+        self.assertIn('if from_base .github/scripts/ci/tree_checks.py "$tmp/tree_checks.py"; then', run)
+        self.assertIn('python3 -I "$tmp/tree_checks.py" || bad=1', run)
+        self.assertIn("python3 -I .github/scripts/ci/tree_checks.py || bad=1", run)
+        self.assertIn("python3 -I .github/scripts/ci/structure.py --exceptions .github/structure.json || bad=1", run)
+        self.assertNotIn("2>/dev/null", run)
         self.assertIn('exit "$bad"', run)
         self.assertEqual(len(self.job["steps"]), 2)
 
     def test_the_job_runs_the_judge_of_the_base_even_when_the_tree_copy_would_pass(self):
         run = self.job["steps"][1]["run"]
-        self.assertLess(run.index("tree_checks.py\" > "), run.index("python3 .github/scripts/ci/tree_checks.py"))
+        self.assertLess(run.index('from_base .github/scripts/ci/tree_checks.py'), run.index("python3 -I .github/scripts/ci/tree_checks.py"))
+        self.assertLess(run.index('from_base .github/scripts/ci/structure.py'), run.index("python3 -I .github/scripts/ci/structure.py"))
+
+    def test_the_function_that_reads_the_base_is_the_same_text_in_the_three_jobs_that_use_it(self):
+        functions = set()
+        for name in ("tree", "commits", "pins"):
+            run = next(s["run"] for s in self.doc["jobs"][name]["steps"] if "run" in s and "from_base()" in s["run"])
+            match = re.search(r"from_base\(\) \{.*?\n\s*\}\n", run, re.S)
+            self.assertIsNotNone(match, name)
+            functions.add(match.group(0))
+        self.assertEqual(len(functions), 1)
+        text = functions.pop()
+        self.assertIn('listing="$(git ls-tree "$BASE_SHA" -- "$1")" ||', text)
+        self.assertIn('[ -n "$listing" ] || return 1', text)
+        self.assertIn('git show "$BASE_SHA:$1" > "$2" ||', text)
+        self.assertNotIn("2>/dev/null", text)
 
 
 if __name__ == "__main__":
