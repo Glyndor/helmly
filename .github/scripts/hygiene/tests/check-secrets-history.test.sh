@@ -176,6 +176,50 @@ for form in \
 	check "a sample or a path written as [$(printf '%s' "$form" | sed "s/$v/VALUE/")] passes" 0 "$rc"
 done
 
+# An excuse for one assignment does not reach into the next on the same line. A comma or a
+# semicolon belongs to a type only inside brackets, so the exempt name or the sample word of
+# the first assignment cannot cover a real credential in the second, and a plain assignment is
+# read on its own even when a typed match overlaps it.
+for form in \
+	"token_name: foo, password: \"$v\"" \
+	"token_url: str, password=\"$v\"" \
+	"token: $v, cert_path: /$v" \
+	"token_file: \"your-$v\"; secret = \"$v\"" \
+	"let api_key_path: Map<String, u8> = x; let token = \"$v\";" \
+	"token_name: a, b, c = d, password := $v"; do
+	out="$(scan "$form")"; rc=$?
+	check "a real credential after an excused one is found in [$(printf '%s' "$form" | sed "s/$v/VALUE/g")]" "1 1" "$rc $(printf '%s' "$out" | grep -c 'long value assigned to a secret-like name')"
+done
+for form in \
+	"const API_KEY_FILE: [u8; 32] = \"$v\";" \
+	"const TOKEN_PATH: Map<String, String> = \"$v\";" \
+	"token_url: str, cert_path: \"$v\""; do
+	out="$(scan "$form")"; rc=$?
+	check "a name that holds a path keeps its excuse, a bracketed type included, in [$(printf '%s' "$form" | sed "s/$v/VALUE/g")]" 0 "$rc"
+done
+
+# What the pattern of the first version accepted by accident: a quote with a backslash in front
+# of it (a JSON string, generated YAML) and a tab written as a backslash and a t in the text.
+bs="\\"
+for form in \
+	"token=${bs}\"$v${bs}\"" \
+	"password: ${bs}\"$v${bs}\"" \
+	"token:${bs}t$v" \
+	"${bs}\"token${bs}\":${bs}t${bs}\"$v${bs}\"" \
+	"{${bs}\"secret${bs}\": ${bs}\"$v${bs}\"}" \
+	"password=${bs}t${bs}t'$v'"; do
+	out="$(scan "$form")"; rc=$?
+	check "a form with a backslash is found in [$(printf '%s' "$form" | sed "s/$v/VALUE/g")]" "1 1" "$rc $(printf '%s' "$out" | grep -c 'long value assigned to a secret-like name')"
+done
+for form in \
+	"token_file=${bs}\"/run/secrets/$v${bs}\"" \
+	"password_url:${bs}t$v" \
+	"token=${bs}\"your-$v${bs}\"" \
+	"token:${bs}tfake_$v"; do
+	out="$(scan "$form")"; rc=$?
+	check "an excused form with a backslash passes in [$(printf '%s' "$form" | sed "s/$v/VALUE/g")]" 0 "$rc"
+done
+
 echo "$pass passed, $fail failed"
 printf 'DONE %s %d %d\n' "${BASH_SOURCE[0]##*/}" "$pass" "$fail"
 [ "$fail" -eq 0 ]

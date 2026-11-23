@@ -223,32 +223,54 @@ done <<< "$candidates"
 
 # A credential with a format of its own is caught by the name it is assigned to.
 generic_name='(token|secret|passw(or)?d|api[_-]?key|private[_-]?key|signing[_-]?key|access[_-]?key|ed25519[_-]?key|mldsa[0-9_-]*key|credential)[a-z0-9_]*'
+# A blank is a space, a tab, or the two characters backslash and t, which is how a tab is
+# written in the text of a JSON string or of generated YAML. A quote may carry a backslash in
+# front of it (`token=\"...\"`) for the same reason.
+generic_blank='(\\t|[[:blank:]])*'
+generic_quote='(\\)?["'"'"']?'
 # An optional type between the name and the operator (`const TOKEN: &str = "..."`,
-# `token: string = "..."`), then an operator of one or more characters (`=`, `:`, `:=`, `=>`,
-# `==`), then the value. The blank is a space or a tab: inside a bracket expression a `\t` is
-# a backslash and a t, so the class says what it means.
-generic_annotation='([[:blank:]]*:[[:blank:]]*[A-Za-z_&][][A-Za-z0-9_<>&'"'"';,[:blank:]]*)?'
-generic="${generic_name}[\"']?${generic_annotation}[[:blank:]]*(:=|=>|==|=|:)[[:blank:]]*[\"']?([a-z0-9+/_=-]{32,})"
+# `token: string = "..."`, `let k: Vec<u8> = ...`). A type never crosses into the next
+# assignment: a comma or a semicolon is part of it only inside `<...>` or `[...]`, so
+# `token_name: foo, password: "..."` is two assignments and not a typed one.
+generic_type_inner='[A-Za-z0-9_&'"'"',;:[:blank:]<>]'
+generic_type_group='(<'"$generic_type_inner"'*>|\['"$generic_type_inner"'*\])'
+generic_annotation='('"$generic_blank"':'"$generic_blank"'[A-Za-z_&]([A-Za-z0-9_&'"'"']|[[:blank:]]|'"$generic_type_group"')*)?'
+# The operator is one or more characters (`=`, `:`, `:=`, `=>`, `==`), then the value. The name
+# is a group of its own, the first, and the value the last.
+generic_operator='(:=|=>|==|=|:)'
+generic_value='([a-z0-9+/_=-]{32,})'
+generic="(${generic_name})${generic_quote}${generic_annotation}${generic_blank}${generic_operator}${generic_blank}${generic_quote}${generic_value}"
+# The same with no type, read on its own as well: a match that took a type must not hide a
+# plain assignment that it overlaps.
+generic_plain="(${generic_name})${generic_quote}${generic_blank}${generic_operator}${generic_blank}${generic_quote}${generic_value}"
 # What excuses an assignment is read in the assignment itself, not in the line around it:
-# the name of a variable that holds a file, a path or an address is not a secret, and a
-# value that carries a sample word of its own, as a word and not as a run of letters of a
-# key, is a sample. A word in the name, in a comment or in the path says nothing about the value.
-named_path='_(file|path|dir|url|name|env|var)[a-z0-9_]*["'"'"']?[[:blank:]]*[:=]'
+# the name of a variable that holds a file, a path or an address is not a secret (the name,
+# and only the name: not the type, not a neighbour), and a value that carries a sample word of
+# its own, as a word and not as a run of letters of a key, is a sample.
+named_path='_(file|path|dir|url|name|env|var)[a-z0-9_]*$'
 sample_word='(^|[^a-z0-9])(example|placeholder|dummy|fake|fixture|changeme|redacted|your)([^a-z0-9]|$)'
-real_value() { # <text of a line>: succeeds when some assignment in it is not a sample
-	local rest="$1" found=false whole value pre
-	shopt -s nocasematch
-	while [[ "$rest" =~ $generic ]]; do
-		found=true
+assignment_is_real() { # <regex> <text>: some assignment the regex finds in the text is not excused
+	local rest="$2" whole name value before
+	while [[ "$rest" =~ $1 ]]; do
 		whole="${BASH_REMATCH[0]}"
+		name="${BASH_REMATCH[1]}"
 		value="${BASH_REMATCH[${#BASH_REMATCH[@]} - 1]}"
-		pre="${whole%"$value"}"
-		rest="${rest#*"$whole"}"
-		if [[ ! "$pre" =~ $named_path ]] && [[ ! "$value" =~ $sample_word ]]; then
-			shopt -u nocasematch
-			return 0
-		fi
+		if [[ ! "$name" =~ $named_path ]] && [[ ! "$value" =~ $sample_word ]]; then return 0; fi
+		# Past the name only, so that what follows on the line is read too, and not past the whole
+		# match: an excuse for one assignment cannot reach into the next.
+		before="${rest%%"$whole"*}"
+		rest="${rest:$((${#before} + ${#name}))}"
 	done
+	return 1
+}
+real_value() { # <text of a line>: succeeds when some assignment in it is not a sample
+	local found=false
+	shopt -s nocasematch
+	if [[ "$1" =~ $generic ]] || [[ "$1" =~ $generic_plain ]]; then found=true; fi
+	if [ "$found" = true ] && { assignment_is_real "$generic" "$1" || assignment_is_real "$generic_plain" "$1"; }; then
+		shopt -u nocasematch
+		return 0
+	fi
 	shopt -u nocasematch
 	# A line the candidate search took and this one does not read is not excused.
 	[ "$found" = true ] || return 0
