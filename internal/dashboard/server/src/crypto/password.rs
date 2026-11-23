@@ -1,12 +1,18 @@
 use anyhow::Result;
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
+use rand::Rng;
 use zeroize::Zeroizing;
 
 pub fn hash(password: &str) -> Result<String> {
-    let salt = SaltString::generate(&mut OsRng);
+    // A new 16-byte salt for every hash, from the same generator as the keys of this module. It is
+    // not taken from `argon2::password_hash::rand_core`, a feature that this crate never asks for
+    // and that only builds when another crate of the stack happens to turn it on.
+    let mut raw = [0u8; 16];
+    rand::rng().fill_bytes(&mut raw);
+    let salt = SaltString::encode_b64(&raw).map_err(|e| anyhow::anyhow!("argon2 salt: {e}"))?;
     Argon2::default()
         .hash_password(password.as_bytes(), &salt)
         .map(|h| h.to_string())
@@ -67,6 +73,16 @@ mod tests {
         let h1 = hash(&pw).expect("h1");
         let h2 = hash(&pw).expect("h2");
         assert_ne!(h1, h2, "each hash must use a fresh salt");
+    }
+
+    #[test]
+    fn a_new_hash_has_the_settings_and_the_lengths_it_always_had() {
+        let h = hash("correct horse").expect("hash");
+        let parts: Vec<&str> = h.split('$').collect();
+        assert_eq!(parts.len(), 6, "{h}");
+        assert_eq!(&parts[..4], &["", "argon2id", "v=19", "m=19456,t=2,p=1"]);
+        assert_eq!(parts[4].len(), 22, "a 16-byte salt in 22 characters");
+        assert_eq!(parts[5].len(), 43, "a 32-byte hash in 43 characters");
     }
 
     #[test]

@@ -5,7 +5,7 @@
 use super::kek::{decrypt_dek, decrypt_with_dek, encrypt_with_dek};
 use aes_gcm::{
     aead::{Aead, KeyInit, Payload},
-    Aes256Gcm, Key, Nonce,
+    Aes256Gcm, Nonce,
 };
 
 struct Vector {
@@ -67,16 +67,22 @@ fn fixed_bytes() -> [u8; 32] {
 }
 
 fn seal(key: &[u8; 32], nonce: &[u8], aad: &[u8], plain: &[u8]) -> Vec<u8> {
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let cipher = Aes256Gcm::new(&(*key).into());
     cipher
-        .encrypt(Nonce::from_slice(nonce), Payload { msg: plain, aad })
+        .encrypt(
+            &Nonce::try_from(nonce).expect("a 12-byte nonce"),
+            Payload { msg: plain, aad },
+        )
         .expect("seal")
 }
 
 fn open(key: &[u8; 32], nonce: &[u8], aad: &[u8], sealed: &[u8]) -> Option<Vec<u8>> {
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let cipher = Aes256Gcm::new(&(*key).into());
     cipher
-        .decrypt(Nonce::from_slice(nonce), Payload { msg: sealed, aad })
+        .decrypt(
+            &Nonce::try_from(nonce).expect("a 12-byte nonce"),
+            Payload { msg: sealed, aad },
+        )
         .ok()
 }
 
