@@ -272,6 +272,35 @@ printf 'data = ["%s", // %s\n  "%s",\n]\n' "$H" "$mark" "$body" > "$repo/k.txt";
 out="$(cd "$repo" && "$SCRIPT" "$base" HEAD 2>&1)"; rc=$?
 check "a marked header does not hide the body of a key below it" "1 1" "$rc $(printf '%s' "$out" | grep -c 'k.txt:1 private key spread over lines')"
 
+# Bytes that are not text, in the same file: a NUL and a 0xFF byte, in a file whose name sorts before
+# the file that holds the token. The scan reads bytes (no locale, no grep that takes the stream for
+# binary) and a failure to read is an error and never a scan that found nothing.
+git -C "$repo" reset -q --hard "$base"
+printf 'before\0\377after\n\377\377\0\n' > "$repo/0-bytes.bin"; printf 't=%s\n' "$token" > "$repo/z.txt"; gitc add -A; gitc commit -q -m "bytes first"
+out="$(cd "$repo" && LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 "$SCRIPT" "$base" HEAD 2>&1)"; rc=$?
+check "a file with a NUL and a 0xFF that sorts first does not hide a token, whatever the locale" "1 1" "$rc $(printf '%s' "$out" | grep -c 'z.txt:1 GitHub token')"
+git -C "$repo" reset -q --hard "$base"
+printf 't=%s\n' "$token" > "$repo/0-first.txt"; printf 'x\0\377\n' > "$repo/z.bin"; gitc add -A; gitc commit -q -m "token first"
+out="$(cd "$repo" && LC_ALL=C.UTF-8 "$SCRIPT" "$base" HEAD 2>&1)"; rc=$?
+check "and the same with the token in the file that sorts first" "1 1" "$rc $(printf '%s' "$out" | grep -c '0-first.txt:1 GitHub token')"
+
+# A root commit: a branch with no history in common whose first commit adds a token and whose second
+# commit takes it out, merged. The root commit has no parent, so it is read against the empty tree;
+# what the net diff and the merge show is a tree without the token.
+trunk=mainline
+git -C "$repo" checkout -q -f -B "$trunk" "$base"
+git -C "$repo" checkout -q --orphan unrelated
+git -C "$repo" rm -rq --cached . >/dev/null 2>&1; find "$repo" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+printf 't=%s\n' "$token" > "$repo/root.txt"; gitc add -A; gitc commit -q -m "a root commit with a token"
+printf 'clean\n' > "$repo/root.txt"; gitc add -A; gitc commit -q -m "and one that takes it out"
+git -C "$repo" checkout -q -f "$trunk"
+git -C "$repo" -c user.name=t -c user.email=t@x -c commit.gpgSign=false merge -q --allow-unrelated-histories --no-edit unrelated >/dev/null 2>&1
+out="$(cd "$repo" && "$SCRIPT" "$base" HEAD 2>&1)"; rc=$?
+check "a token added by a root commit and taken out by the next is found" "1 1" "$rc $(printf '%s' "$out" | grep -c 'root.txt:1 GitHub token')"
+check "and the merge that brings it in does not hide it" 1 "$(git -C "$repo" rev-list --merges "$base..HEAD" | wc -l | tr -d ' ')"
+check "and no value is printed" 0 "$(printf '%s' "$out" | grep -cF "$token")"
+git -C "$repo" checkout -q -f --detach "$base"; git -C "$repo" branch -q -D unrelated "$trunk"
+
 echo "$pass passed, $fail failed"
 printf 'DONE %s %d %d\n' "${BASH_SOURCE[0]##*/}" "$pass" "$fail"
 [ "$fail" -eq 0 ]

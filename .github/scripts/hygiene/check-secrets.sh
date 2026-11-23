@@ -235,7 +235,10 @@ scan_pair "$merge_base" "$head"
 # a token pasted into a message is a token published.
 while IFS= read -r sha; do
 	[ -n "$sha" ] || continue
-	parents="$(git rev-list --parents -n 1 "$sha" | cut -d' ' -f2-)" || exit 1
+	# The parents of the commit, and nothing else: `%P` is empty for a root commit, which is then
+	# read against the empty tree. (`rev-list --parents | cut -f2-` would give the root commit
+	# itself as its parent, and an empty diff.)
+	parents="$(git show -s --format=%P "$sha")" || exit 1
 	[ -n "$parents" ] || parents="$empty_tree"
 	for parent in $parents; do scan_pair "$parent" "$sha"; done
 	# The mark is for a value that is public on purpose in a file; in the message of a commit there
