@@ -1,0 +1,8 @@
+# The toolchain every build and check of this workspace uses, locally and in CI
+# (.github/workflows/ci.yml reads it through `rustup toolchain install`). Pinned
+# because tracking `stable` turns every open pull request red the day a new
+# release widens a lint. Raise it by hand, in its own pull request.
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

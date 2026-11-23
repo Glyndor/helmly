@@ -37,3 +37,6 @@ target/
 AGENTS.md
 CLAUDE.md
 GEMINI.md
+
+# Python bytecode written when the CI scripts run locally
+__pycache__/

@@ -1,0 +1,39 @@
+name: Install a cargo tool
+description: Install a crate's binary at a pinned version, cached by crate, version and toolchain, and put it on PATH.
+inputs:
+  crate:
+    description: Crate to install.
+    required: true
+  version:
+    description: Exact version.
+    required: true
+  features:
+    description: Cargo features, with --no-default-features when set.
+    default: ""
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      id: cache
+      with:
+        path: ~/.cargo-tools/${{ inputs.crate }}
+        key: cargo-tool-${{ inputs.crate }}-${{ inputs.version }}-${{ runner.os }}-${{ hashFiles('internal/rust-toolchain.toml') }}
+
+    - name: Build the tool
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: internal
+      env:
+        CRATE: ${{ inputs.crate }}
+        VERSION: ${{ inputs.version }}
+        FEATURES: ${{ inputs.features }}
+      run: |
+        flags=()
+        [ -z "$FEATURES" ] || flags=(--no-default-features --features "$FEATURES")
+        cargo install --locked --root "$HOME/.cargo-tools/$CRATE" --version "$VERSION" "${flags[@]}" "$CRATE"
+
+    - name: Put the tool on PATH
+      shell: bash
+      env:
+        CRATE: ${{ inputs.crate }}
+      run: echo "$HOME/.cargo-tools/$CRATE/bin" >> "$GITHUB_PATH"

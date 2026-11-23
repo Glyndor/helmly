@@ -1,8 +1,10 @@
+//! Shared by every integration-test binary, and each binary uses only some of it.
+#![allow(dead_code)]
+
 use axum_test::TestServer;
 use ed25519_dalek::SigningKey;
 use helmly_dashboard_server::{build_router, crypto::pki, AppState};
 use redis::aio::ConnectionManager;
-use rustls;
 use sqlx::PgPool;
 use std::{collections::HashMap, sync::Arc};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
