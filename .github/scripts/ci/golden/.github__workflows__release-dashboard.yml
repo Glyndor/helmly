@@ -381,24 +381,47 @@ jobs:
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # The signing key is a secret of this environment, and the environment admits only main and
+    # the release tags, so a branch that runs this workflow with its own copy of the scripts
+    # cannot read the key. The job also checks, below, that its commit is the one the tag names.
+    environment: release
     permissions:
       contents: write
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Check that this commit is the one the tag points at
         env:
           TAG: ${{ needs.tag.outputs.tag }}
           RUN_SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          case "$EVENT:$REF" in
+            push:refs/tags/dashboard@* | workflow_dispatch:refs/tags/dashboard@* | workflow_dispatch:refs/heads/main) ;;
+            *)
+              echo "::error::a release is made from a pushed release tag, or from main by hand, and not from $EVENT on $REF"
+              exit 1
+              ;;
+          esac
+          git fetch --force --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}"
           TAG_SHA="$(git rev-parse "refs/tags/${TAG}^{commit}")"
           if [ "$TAG_SHA" != "$RUN_SHA" ]; then
             echo "::error::$TAG points at $TAG_SHA and this run is at $RUN_SHA; start the run from the tag"
+            exit 1
+          fi
+          # A tag can be pushed on any commit by whoever may create it. What is released is only
+          # what main already holds, so the commit must be an ancestor of main, with main fetched
+          # whole (a shallow fetch cannot answer it, so the checkout above has the whole history
+          # and nothing here asks for a depth). This runs before any key enters the job.
+          git fetch --force --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$RUN_SHA" origin/main; then
+            echo "::error::$RUN_SHA is not on main; a release is made from a commit main holds"
             exit 1
           fi
 

@@ -20,11 +20,9 @@ on:
 permissions:
   contents: read
 
-# A newer push to a pull request supersedes the run in flight. A push to a branch or a
-# scheduled run is never cancelled, so every merge keeps its own result.
-concurrency:
-  group: codeql-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# There is no concurrency group: a newer push to a pull request must not cancel the analysis
+# of the one before it, and a run waiting behind another must not be replaced, because a
+# commit that was never analysed is a commit whose alerts nobody saw.
 
 jobs:
   analyze:
@@ -45,7 +43,7 @@ jobs:
           - language: rust
             build-mode: none
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 

@@ -121,7 +121,7 @@ class WhoCanPublishAndSign(unittest.TestCase):
 
     def test_a_run_started_by_hand_must_be_at_the_commit_of_the_tag(self):
         step = run_block(self.jobs["release"], "Check that this commit is the one the tag points at")
-        self.assertIn('git fetch --no-tags --depth=1 origin "refs/tags/${TAG}:refs/tags/${TAG}"', step)
+        self.assertIn('git fetch --force --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}"', step)
         self.assertIn('git rev-parse "refs/tags/${TAG}^{commit}"', step)
         self.assertIn('[ "$TAG_SHA" != "$RUN_SHA" ]', step)
         # it runs before the key is read

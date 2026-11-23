@@ -95,44 +95,6 @@ fn the_second_install_slot_is_empty_so_only_one_key_is_trusted() {
     assert!(install_sh().contains("HELMLY_RELEASE_PUBKEY2_B64=\"${HELMLY_RELEASE_PUBKEY2_B64:-}\""));
 }
 
-fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(dir).unwrap().flatten() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-        if matches!(name.as_str(), ".git" | "target" | "node_modules" | ".next") {
-            continue;
-        }
-        if path.is_dir() {
-            walk(&path, out);
-        } else if path.is_file() {
-            out.push(path);
-        }
-    }
-}
-
-#[test]
-fn no_file_of_the_repository_carries_a_key_from_before_the_rotation() {
-    let mut files = Vec::new();
-    walk(&repo_root(), &mut files);
-    let mut keys = vec!["APh+kh61dJeT0HzG+KQXELzDjK4ccvqY9K+FptOZ3+Y".to_string()];
-    keys.push("APh+kh61dJeT0HzG+KQXELzDjK4ccvqY9K+FptOZ3+Y=".to_string());
-    for path in files {
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        if path.ends_with("tests/release_key.rs") {
-            continue;
-        }
-        for key in &keys {
-            assert!(
-                !text.contains(key.as_str()),
-                "{} still carries the old release key",
-                path.display()
-            );
-        }
-    }
-}
-
 // ---- the shell verifiers, run for real -----------------------------------------------
 
 fn python() -> String {

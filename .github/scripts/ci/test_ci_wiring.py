@@ -26,7 +26,18 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import ci_map  # noqa: E402
 from wiring import run_block, split_jobs, strip_comments  # noqa: E402
 
-from ci_common import GOLDEN, ROOT, WORKFLOW, ci_files, ci_text, reference_of, references, workflow_files  # noqa: E402
+from ci_common import (  # noqa: E402
+    GOLDEN,
+    ROOT,
+    WORKFLOW,
+    ci_files,
+    ci_text,
+    load_yaml,
+    reference_of,
+    references,
+    unpin,
+    workflow_files,
+)
 
 SUITE_JOBS = {
     "fmt": "server",
@@ -38,19 +49,19 @@ SUITE_JOBS = {
     "e2e": "ui",
     "shellcheck": "shell",
 }
-ALWAYS_JOBS = ("map", "audit", "audit-bun")
+ALWAYS_JOBS = ("map", "tree", "pins", "audit", "audit-bun")
 ALL_JOBS = set(SUITE_JOBS) | set(ALWAYS_JOBS) | {"decide", "gate"}
 GUARD_STEP = "Check the plan and what this job needs"
 GATE_STEP = "Every suite passed, or the plan left it out"
 
 
 class WholeFilesAreAsReviewed(unittest.TestCase):
-    def test_every_file_the_ci_runs_is_byte_for_byte_its_reference(self):
+    def test_every_file_the_ci_runs_is_its_reference_but_for_the_value_of_its_pins(self):
         for actual, reference in references().items():
             self.assertTrue(reference.exists(), f"{actual.relative_to(ROOT)} has no reference copy")
             self.assertEqual(
-                actual.read_bytes(),
-                reference.read_bytes(),
+                unpin(actual.read_bytes().decode("utf-8")),
+                unpin(reference.read_bytes().decode("utf-8")),
                 f"{actual.relative_to(ROOT)} differs from {reference.relative_to(ROOT)}",
             )
 
@@ -122,7 +133,20 @@ class ExactShape(unittest.TestCase):
         tests = sorted((ROOT / ".github/scripts").rglob("test_*.py"))
         self.assertTrue(tests)
         for test in tests:
-            self.assertIn(f"python3 {test.relative_to(ROOT).as_posix()}", self.jobs["map"], test.name)
+            self.assertIn(f'"$py" -I {test.relative_to(ROOT).as_posix()}\n', self.jobs["map"], test.name)
+
+    def test_the_tests_run_with_the_python_of_a_venv_built_from_the_hashed_requirements_before_any_test(self):
+        body = self.jobs["map"]
+        install = body.index('python3 -m venv "$RUNNER_TEMP/venv"')
+        first = body.index('"$py" -I ')
+        self.assertLess(install, first)
+        self.assertIn('"$RUNNER_TEMP/venv/bin/pip" install --quiet --only-binary=:all: --require-hashes -r .github/scripts/ci/requirements.txt', body)
+        self.assertIn('py="$RUNNER_TEMP/venv/bin/python"', body)
+        self.assertNotIn("secrets.", body)
+        self.assertNotIn("python3 .github/scripts/ci/test_", body)
+        requirements = (ROOT / ".github/scripts/ci/requirements.txt").read_text(encoding="utf-8")
+        self.assertRegex(requirements, r"^PyYAML==\d+\.\d+\.\d+ \\\n(    --hash=sha256:[0-9a-f]{64}( \\)?\n)+$")
+        self.assertEqual(requirements.count("==") , 1, "a dependency of the YAML reader would need its own hashes")
 
     def test_the_guard_is_the_same_text_in_every_suite_job(self):
         guards = {run_block(self.jobs[name], GUARD_STEP) for name in SUITE_JOBS}
@@ -243,12 +267,16 @@ def triggers_of(text: str) -> "list[tuple[str, str]]":
     return out
 
 
-def produced_names() -> "dict[str, set[tuple[str, str, str]]]":
+def produced_names(files=None) -> "dict[str, set[tuple[str, str, str]]]":
     """Check name -> the (workflow, event, base) triples that produce it. The name of every
-    job is registered for every trigger of its workflow, whatever `if` the job has."""
+    job is registered for every trigger of its workflow, whatever `if` the job has. Names are
+    indexed without regard to case, because that is how the expressions that build them
+    compare, and a producer called `ci GATE` is a competitor of `CI gate`. `files` is a list
+    of (file name, text) for tests; by default it is every workflow of the repository."""
+    if files is None:
+        files = [(path.name, path.read_text(encoding="utf-8")) for path in workflow_files()]
     names: "dict[str, set[tuple[str, str, str]]]" = {}
-    for path in workflow_files():
-        text = path.read_text(encoding="utf-8")
+    for filename, text in files:
         for job_id, body in split_jobs(strip_comments(text)).items():
             m = re.search(r"^    name: (.+)$", body, re.M)
             name = m.group(1).strip() if m else job_id
@@ -258,11 +286,11 @@ def produced_names() -> "dict[str, set[tuple[str, str, str]]]":
                 elif name in MATRIX_NAMES:
                     produced = MATRIX_NAMES[name]
                 elif "${{" in name:
-                    raise AssertionError(f"{path.name}: job {job_id} has a name this test cannot resolve: {name}")
+                    raise AssertionError(f"{filename}: job {job_id} has a name this test cannot resolve: {name}")
                 else:
                     produced = [name]
                 for one in produced:
-                    names.setdefault(one, set()).add((path.name, event, base))
+                    names.setdefault(one.lower(), set()).add((filename, event, base))
     return names
 
 
@@ -274,7 +302,7 @@ class RequiredChecks(unittest.TestCase):
         names = produced_names()
         listed = self.listed()
         wanted = set(listed["reported"]) | {n for group in listed["required"].values() for n in group}
-        self.assertEqual(sorted(wanted - set(names)), [], "listed checks no job produces")
+        self.assertEqual(sorted(n for n in wanted if n.lower() not in names), [], "listed checks no job produces")
 
     def test_each_ruleset_requires_its_own_gate(self):
         required = self.listed()["required"]
@@ -287,13 +315,20 @@ class RequiredChecks(unittest.TestCase):
         names = produced_names()
         for group in self.listed()["required"].values():
             for name in group:
-                self.assertEqual(len(names.get(name, ())), 1, f"{name}: {sorted(names.get(name, ()))}")
+                self.assertEqual(len(names.get(name.lower(), ())), 1, f"{name}: {sorted(names.get(name.lower(), ()))}")
 
     def test_the_gate_has_a_different_name_for_each_event_and_base(self):
         names = produced_names()
-        self.assertEqual(names["CI gate"], {("ci.yml", "pull_request", "develop")})
-        self.assertEqual(names["CI gate (main)"], {("ci.yml", "pull_request", "main")})
-        self.assertEqual(names["CI gate (push)"], {("ci.yml", "push", "*")})
+        self.assertEqual(names["ci gate"], {("ci.yml", "pull_request", "develop")})
+        self.assertEqual(names["ci gate (main)"], {("ci.yml", "pull_request", "main")})
+        self.assertEqual(names["ci gate (push)"], {("ci.yml", "push", "*")})
+
+    def test_a_competitor_with_the_name_in_another_case_is_a_second_producer(self):
+        other = "name: o\non:\n  pull_request:\n    branches: [develop]\njobs:\n  x:\n    name: ci GATE\n    runs-on: x\n    steps:\n      - run: echo\n"
+        files = [(path.name, path.read_text(encoding="utf-8")) for path in workflow_files()] + [("other.yml", other)]
+        names = produced_names(files)
+        self.assertEqual(len(names["ci gate"]), 2)
+        self.assertEqual(len(names["ci gate (main)"]), 1)
 
     def test_a_name_with_an_expression_this_test_cannot_resolve_is_refused(self):
         self.assertTrue(all("${{" in k for k in MATRIX_NAMES))
@@ -334,6 +369,15 @@ class WiringIsWatched(unittest.TestCase):
             ".github/actions/setup-rust/action.yml",
         ):
             self.assertEqual(ci_map.select([path], data), everything, path)
+
+    def test_dependabot_watches_the_requirements_of_the_yaml_reader_and_of_the_signing_library(self):
+        data = load_yaml((ROOT / ".github/dependabot.yml").read_text(encoding="utf-8"))
+        entries = [u for u in data["updates"] if u["package-ecosystem"] == "pip"]
+        self.assertEqual([u["directory"] for u in entries], ["/.github/scripts/ci", "/.github/scripts/release"])
+        self.assertTrue((ROOT / ".github/scripts/ci/requirements.txt").is_file())
+        self.assertTrue((ROOT / ".github/scripts/release/sign-requirements.txt").is_file())
+        for entry in entries:
+            self.assertEqual(entry["target-branch"], "develop")
 
     def test_the_map_job_has_no_condition(self):
         body = split_jobs(strip_comments(WORKFLOW.read_text(encoding="utf-8")))["map"]
