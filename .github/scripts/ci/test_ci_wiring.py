@@ -131,7 +131,7 @@ class ExactShape(unittest.TestCase):
 
     def test_every_shell_test_of_the_hygiene_checks_is_run_by_the_map_job(self):
         tests = sorted((ROOT / ".github/scripts/hygiene/tests").glob("*.test.sh"))
-        self.assertEqual(len(tests), 4)
+        self.assertEqual(len(tests), 5)
         for test in tests:
             self.assertIn(f"bash {test.relative_to(ROOT).as_posix()}", self.jobs["map"], test.name)
 

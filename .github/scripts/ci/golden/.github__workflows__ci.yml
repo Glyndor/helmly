@@ -137,6 +137,7 @@ jobs:
           bash .github/scripts/hygiene/tests/check-commit-identity.test.sh
           bash .github/scripts/hygiene/tests/check-secrets.test.sh
           bash .github/scripts/hygiene/tests/check-secrets-history.test.sh
+          bash .github/scripts/hygiene/tests/check-secrets-lines.test.sh
 
   # Checks of the whole tree. They have no plan and no condition: a check that depends on which
   # files changed is one a change can avoid by touching other files, and the retired release key
