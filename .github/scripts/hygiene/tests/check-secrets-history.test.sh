@@ -252,6 +252,26 @@ for form in \
 	check "a nested type with a name that holds a path passes in [$(printf '%s' "$form" | sed "s/$v/VALUE/g")]" 0 "$rc"
 done
 
+# The mark that skips a line is the author's own, so the log says where it was used and never what
+# the line held; and it skips nothing in the message of a commit.
+mark="secret-scan"":allow"
+git -C "$repo" reset -q --hard "$base"
+printf 'one = 1\nt=%s # %s\n' "$token" "$mark" > "$repo/marked.txt"; printf 'two = 2\nv=%s // %s\n' "$token" "$mark" > "$repo/marked2.txt"; gitc add -A; gitc commit -q -m marks
+out="$(cd "$repo" && "$SCRIPT" "$base" HEAD 2>&1)"; rc=$?
+check "a line with the mark passes" 0 "$rc"
+check "and the log names the file and line of each, counted" "1 1 1" "$(printf '%s' "$out" | grep -c 'skipped 2 line(s)') $(printf '%s' "$out" | grep -c 'marked.txt:2') $(printf '%s' "$out" | grep -c 'marked2.txt:2')"
+check "and does not print what they held" 0 "$(printf '%s' "$out" | grep -cF "$token")"
+git -C "$repo" reset -q --hard "$base"
+printf 'ordinary\n' > "$repo/h.txt"; gitc add -A; gitc commit -q -m "a note that carries $token and the mark $mark"
+out="$(cd "$repo" && "$SCRIPT" "$base" HEAD 2>&1)"; rc=$?
+check "the mark does not skip a credential in the message of a commit" "1 1" "$rc $(printf '%s' "$out" | grep -c 'GitHub token')"
+check "and a message is not counted among the skipped lines" 0 "$(printf '%s' "$out" | grep -c 'skipped')"
+# a header that carries the mark is still read for the key below it
+git -C "$repo" reset -q --hard "$base"
+printf 'data = ["%s", // %s\n  "%s",\n]\n' "$H" "$mark" "$body" > "$repo/k.txt"; gitc add -A; gitc commit -q -m "a marked header"
+out="$(cd "$repo" && "$SCRIPT" "$base" HEAD 2>&1)"; rc=$?
+check "a marked header does not hide the body of a key below it" "1 1" "$rc $(printf '%s' "$out" | grep -c 'k.txt:1 private key spread over lines')"
+
 echo "$pass passed, $fail failed"
 printf 'DONE %s %d %d\n' "${BASH_SOURCE[0]##*/}" "$pass" "$fail"
 [ "$fail" -eq 0 ]

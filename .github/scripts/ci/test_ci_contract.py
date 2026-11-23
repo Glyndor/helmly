@@ -426,7 +426,7 @@ class TheCommitChecks(unittest.TestCase):
         listing = subprocess.run(
             ["git", "ls-files", "-s", ".github/scripts/hygiene"], cwd=ROOT, capture_output=True, text=True, check=True
         ).stdout.splitlines()
-        self.assertEqual(len(listing), 7)
+        self.assertEqual(len(listing), 8)
         for line in listing:
             self.assertTrue(line.startswith("100755 "), line)
 
