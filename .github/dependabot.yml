@@ -84,3 +84,23 @@ updates:
       prefix: "ci(deps)"
     cooldown:
       default-days: 3
+
+  # The signing library of the release workflow: three packages (cryptography, cffi, pycparser) pinned
+  # by version and by the hashes of their wheels in `sign-requirements.txt`. Dependabot moves the
+  # three together in one pull request; the signing tests of the `CI map` job and a dry run of the
+  # release workflow are what a bump has to pass before it is merged.
+  - package-ecosystem: "pip"
+    directory: "/.github/scripts/release"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["type:deps", "type:ci", "prio:P3", "effort:XS"]
+    open-pull-requests-limit: 2
+    target-branch: "develop"
+    commit-message:
+      prefix: "ci(deps)"
+    cooldown:
+      default-days: 3
+    groups:
+      signing-library:
+        patterns: ["*"]

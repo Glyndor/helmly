@@ -129,6 +129,8 @@ EXPECTED_SUITES = {
     ".github/scripts/ci/tree_checks.py": EVERYTHING,
     ".github/scripts/ci/test_ci_contract.py": EVERYTHING,
     ".github/scripts/ci/test_ci_tree.py": EVERYTHING,
+    ".github/scripts/ci/test_ci_pins.py": EVERYTHING,
+    ".github/scripts/ci/check_pins.py": EVERYTHING,
     ".github/scripts/ci/test_ci_environment.py": EVERYTHING,
     ".github/scripts/ci/test_ci_release.py": EVERYTHING,
     ".github/scripts/release/set_version.py": EVERYTHING,

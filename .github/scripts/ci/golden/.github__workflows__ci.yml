@@ -131,6 +131,7 @@ jobs:
           "$py" -I .github/scripts/ci/test_ci_contract.py
           "$py" -I .github/scripts/ci/test_ci_environment.py
           "$py" -I .github/scripts/ci/test_ci_tree.py
+          "$py" -I .github/scripts/ci/test_ci_pins.py
 
   # Checks of the whole tree. They have no plan and no condition: a check that depends on which
   # files changed is one a change can avoid by touching other files, and the retired release key
@@ -169,6 +170,30 @@ jobs:
           fi
           echo "== judged with the script of this tree"
           python3 .github/scripts/ci/tree_checks.py || bad=1
+          exit "$bad"
+
+      # The comparison with the reference copies ignores the value of a pin, so that Dependabot can
+      # move it; this is what judges the value. It asks github.com which commit each tag names,
+      # and a pin that cannot be asked fails. It is not in the unit tests, which need no network.
+      - name: Check that each pin is the commit of the tag its comment names
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -uo pipefail
+          bad=0
+          tmp="$RUNNER_TEMP/pins"
+          mkdir -p "$tmp"
+          if [ "$EVENT" = pull_request ]; then
+            if git show "$BASE_SHA:.github/scripts/ci/check_pins.py" > "$tmp/check_pins.py" 2>/dev/null; then
+              echo "== judged with the script of the base commit"
+              python3 "$tmp/check_pins.py" || bad=1
+            else
+              echo "::notice::the base commit has no pin check yet; this change introduces it"
+            fi
+          fi
+          echo "== judged with the script of this tree"
+          python3 .github/scripts/ci/check_pins.py || bad=1
           exit "$bad"
 
   # ---- server: cheap tier ----------------------------------------------------
