@@ -111,12 +111,65 @@ jobs:
         with:
           persist-credentials: false
 
+      # The tests read the workflows with a real YAML reader. It is installed from wheels whose
+      # hashes are in requirements.txt, in a step that has no secret and runs before any test; a
+      # Dependabot entry watches that file.
+      - name: The YAML reader of the tests
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --only-binary=:all: --require-hashes -r .github/scripts/ci/requirements.txt
+
       - name: Test the map, the decision, the gate and the wiring
         run: |
-          python3 .github/scripts/ci/test_ci_map.py
-          python3 .github/scripts/ci/test_ci_wiring.py
-          python3 .github/scripts/ci/test_ci_audit.py
-          python3 .github/scripts/ci/test_ci_release.py
+          set -euo pipefail
+          py="$RUNNER_TEMP/venv/bin/python"
+          "$py" -I .github/scripts/ci/test_ci_map.py
+          "$py" -I .github/scripts/ci/test_ci_wiring.py
+          "$py" -I .github/scripts/ci/test_ci_audit.py
+          "$py" -I .github/scripts/ci/test_ci_release.py
+          "$py" -I .github/scripts/ci/test_ci_contract.py
+          "$py" -I .github/scripts/ci/test_ci_environment.py
+          "$py" -I .github/scripts/ci/test_ci_tree.py
+
+  # Checks of the whole tree. They have no plan and no condition: a check that depends on which
+  # files changed is one a change can avoid by touching other files, and the retired release key
+  # in a document is exactly what a change that touches no suite adds. On a pull request the tree
+  # is judged twice, with the script of the base commit (a change cannot weaken the judge of
+  # itself) and with the script of the tree (a change cannot leave the branch red for everyone
+  # after it merges), and both must pass. A base with no such script, the change that introduces
+  # it, is judged by the tree's.
+  tree:
+    name: Tree checks
+    runs-on: ubuntu-latest
+    # Two seconds of work over a few hundred files, plus a checkout.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Judge the tree with the copy of the base and with the copy of the tree
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -uo pipefail
+          bad=0
+          tmp="$RUNNER_TEMP/tree"
+          mkdir -p "$tmp"
+          if [ "$EVENT" = pull_request ]; then
+            if git show "$BASE_SHA:.github/scripts/ci/tree_checks.py" > "$tmp/tree_checks.py" 2>/dev/null; then
+              echo "== judged with the script of the base commit"
+              python3 "$tmp/tree_checks.py" || bad=1
+            else
+              echo "::notice::the base commit has no tree checks yet; this change introduces them"
+            fi
+          fi
+          echo "== judged with the script of this tree"
+          python3 .github/scripts/ci/tree_checks.py || bad=1
+          exit "$bad"
 
   # ---- server: cheap tier ----------------------------------------------------
 
@@ -630,7 +683,7 @@ jobs:
   # `decide` succeeded and every job succeeded or was left out because the plan said so.
   gate:
     name: ${{ github.event_name == 'pull_request' && (github.event.pull_request.base.ref == 'main' && 'CI gate (main)' || 'CI gate') || format('CI gate ({0})', github.event_name) }}
-    needs: [decide, map, fmt, urls, audit, clippy, test, typecheck, unit, audit-bun, e2e, shellcheck]
+    needs: [decide, map, tree, fmt, urls, audit, clippy, test, typecheck, unit, audit-bun, e2e, shellcheck]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

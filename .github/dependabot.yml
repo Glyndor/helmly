@@ -68,3 +68,19 @@ updates:
       ui-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+
+  # The YAML reader of the CI tests: one package, pinned by version and by the hashes of its wheels.
+  # A bump is one pull request, and the `CI map` job installs it with `--require-hashes` and runs
+  # the tests with it, so a version that reads a workflow differently fails there.
+  - package-ecosystem: "pip"
+    directory: "/.github/scripts/ci"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["type:deps", "type:ci", "prio:P3", "effort:XS"]
+    open-pull-requests-limit: 2
+    target-branch: "develop"
+    commit-message:
+      prefix: "ci(deps)"
+    cooldown:
+      default-days: 3

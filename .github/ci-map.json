@@ -18,7 +18,10 @@
       "internal/dashboard/server/**",
       ".github/scripts/audit-urls.py",
       "internal/.cargo/**",
-      "internal/dashboard/release-verify-key.b64"
+      "internal/dashboard/release-verify-key.b64",
+      "install.sh",
+      "internal/dashboard/setup-dashboard.sh",
+      "internal/dashboard/update-dashboard.sh"
     ],
     "ui": [
       "internal/dashboard/ui/**"

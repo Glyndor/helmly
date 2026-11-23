@@ -109,9 +109,10 @@ EXPECTED_SUITES = {
     "internal/dashboard/ui/bun.lock": {"ui"},
     "internal/dashboard/ui/bunfig.toml": {"ui"},
     "internal/dashboard/ui/src/app/page.tsx": {"ui"},
-    "install.sh": {"shell"},
+    "install.sh": {"server", "shell"},
     "scripts/lint.sh": {"shell"},
-    "internal/dashboard/setup-dashboard.sh": {"shell"},
+    "internal/dashboard/setup-dashboard.sh": {"server", "shell"},
+    "internal/dashboard/update-dashboard.sh": {"server", "shell"},
     ".github/scripts/install-bun.sh": EVERYTHING,
     ".github/scripts/install-shellcheck.sh": EVERYTHING,
     ".github/actions/setup-rust/action.yml": EVERYTHING,
@@ -124,6 +125,11 @@ EXPECTED_SUITES = {
     ".github/scripts/ci/golden/.github__actions__cargo-tool__action.yml": EVERYTHING,
     ".github/scripts/ci/wiring.py": EVERYTHING,
     ".github/scripts/ci/ci_common.py": EVERYTHING,
+    ".github/scripts/ci/requirements.txt": EVERYTHING,
+    ".github/scripts/ci/tree_checks.py": EVERYTHING,
+    ".github/scripts/ci/test_ci_contract.py": EVERYTHING,
+    ".github/scripts/ci/test_ci_tree.py": EVERYTHING,
+    ".github/scripts/ci/test_ci_environment.py": EVERYTHING,
     ".github/scripts/ci/test_ci_release.py": EVERYTHING,
     ".github/scripts/release/set_version.py": EVERYTHING,
     ".github/scripts/release/sign-artifacts.sh": EVERYTHING,
@@ -198,9 +204,15 @@ class Decisions(unittest.TestCase):
         self.assertEqual(self.chosen("internal/dashboard/ui/src/app/page.tsx"), {"ui"})
         self.assertEqual(self.chosen("internal/dashboard/ui/bun.lock"), {"ui"})
 
-    def test_a_shell_script_runs_only_shellcheck(self):
-        self.assertEqual(self.chosen("install.sh"), {"shell"})
-        self.assertEqual(self.chosen("internal/dashboard/setup-dashboard.sh"), {"shell"})
+    def test_a_shell_script_runs_shellcheck(self):
+        self.assertEqual(self.chosen("scripts/lint.sh"), {"shell"})
+        self.assertEqual(self.chosen("scripts/install-podman.sh"), {"shell"})
+
+    def test_the_installers_that_embed_the_release_key_also_run_the_tests_that_hold_it(self):
+        # tests/release_key.rs reads these three and runs their verifiers: a change to one of
+        # them alone must run the server suite, not only shellcheck.
+        for path in ("install.sh", "internal/dashboard/setup-dashboard.sh", "internal/dashboard/update-dashboard.sh"):
+            self.assertEqual(self.chosen(path), {"server", "shell"}, path)
 
     def test_a_change_to_the_ci_itself_runs_everything(self):
         everything = set(self.map["suites"])

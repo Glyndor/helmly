@@ -35,6 +35,38 @@ def reference_of(path: pathlib.Path) -> pathlib.Path:
     return GOLDEN / path.relative_to(ROOT).as_posix().replace("/", "__")
 
 
+def load_yaml(text: str):
+    """Read a workflow or an action with PyYAML, installed from wheels whose hashes are in
+    requirements.txt (the `map` job does that before it runs any test).
+
+    The reader is PyYAML's `SafeLoader` plus three refusals, so that what a test sees is what
+    the file says and nothing a reader could resolve in its own way: a key written twice in one
+    mapping, an anchor or an alias, and more than one document. Every plain scalar stays the
+    text it was written as (no booleans, numbers, nulls or dates), so `on` is the key "on" and
+    `10` is the string "10"; the tests compare text."""
+    import yaml
+
+    class StrictLoader(yaml.SafeLoader):
+        yaml_implicit_resolvers = {}
+
+        def compose_node(self, parent, index):
+            event = self.peek_event()
+            if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None) is not None:
+                raise yaml.constructor.ConstructorError(None, None, "an anchor or an alias", event.start_mark)
+            return super().compose_node(parent, index)
+
+        def construct_mapping(self, node, deep=False):
+            seen = set()
+            for key_node, _ in node.value:
+                key = self.construct_object(key_node, deep=deep)
+                if key in seen:
+                    raise yaml.constructor.ConstructorError(None, None, f"duplicate key {key!r}", key_node.start_mark)
+                seen.add(key)
+            return super().construct_mapping(node, deep)
+
+    return yaml.load(text, Loader=StrictLoader)  # noqa: S506 - a SafeLoader subclass
+
+
 def ci_text() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
 
