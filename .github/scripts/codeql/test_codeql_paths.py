@@ -107,13 +107,17 @@ class Measured(unittest.TestCase):
         clippy = next(i for i, s in enumerate(steps) if "cargo clippy" in s.get("run", ""))
         self.assertGreater(steps.index(run[0]), clippy, "after the build that fills the target directory")
 
-    def test_the_checks_look_at_the_production_targets_with_and_without_all_features_and_no_tests(self):
+    def test_the_checks_read_production_in_debug_and_release_with_and_without_all_features_and_the_tests_apart(self):
         text = (HERE / "check_paths_ignore.py").read_text(encoding="utf-8")
-        self.assertIn('"--lib", "--bins", "--message-format=json"', text)
-        self.assertIn('("--all-features",)', text)
-        command = next(line for line in text.splitlines() if '"cargo", "check"' in line)
-        for flag in ("--tests", "--all-targets", "--test", "--benches", "--examples"):
-            self.assertNotIn(flag, command)
+        self.assertIn('PRODUCTION_PASSES = ((), ("--all-features",), ("--release",), ("--release", "--all-features"))', text)
+        self.assertIn('TEST_PASSES = ((), ("--all-features",))', text)
+        # production is built from the library and the binaries, and never from the tests
+        self.assertIn('cargo_check(cwd, ("--lib", "--bins"), extra, package, locked), root, cwd)', text)
+        self.assertIn('cargo_check(cwd, ("--tests",), extra, package, locked), root, cwd)', text)
+        self.assertEqual(check_paths_ignore.PRODUCTION_PASSES, ((), ("--all-features",), ("--release",), ("--release", "--all-features")))
+        self.assertNotIn("--target", text.split("PRODUCTION_PASSES =")[1].split("TEST_PASSES")[0])
+        for flag in ("--all-targets", "--benches", "--examples"):
+            self.assertNotIn(f'"{flag}"', text)
 
     def test_a_production_file_that_had_tests_with_vectors_keeps_them_in_a_file_of_its_own(self):
         path = "internal/dashboard/server/src/crypto/password/tests.rs"

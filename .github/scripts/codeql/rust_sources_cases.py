@@ -139,23 +139,85 @@ class TheReading(unittest.TestCase):
         self.assertFalse(m("[ab].rs", "a.rs"))
 
 
+class ThePasses(unittest.TestCase):
+    """The passes of the real script on a small crate that is compiled: what only a release build reads,
+    what only another target reads, and what only the tests read."""
+
+    def collect(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        files = {
+            "Cargo.toml": CARGO,
+            "src/lib.rs": 'mod always;\n#[cfg(not(debug_assertions))]\nmod release_only_tests;\n'
+                          '#[cfg(target_os = "windows")]\nmod windows_tests;\n#[cfg(test)]\nmod real_tests;\n',
+            "src/always.rs": "",
+            "src/release_only_tests.rs": "",
+            "src/windows_tests.rs": "",
+            "src/real_tests.rs": "",
+            "tests/it.rs": "mod shared;\n",
+            "tests/shared.rs": "",
+        }
+        for name, text in files.items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(text)
+        env = os.environ.copy()
+        env["CARGO_TARGET_DIR"] = str(root / "target")
+        old = os.environ.get("CARGO_TARGET_DIR")
+        os.environ["CARGO_TARGET_DIR"] = env["CARGO_TARGET_DIR"]
+        try:
+            production, tests = check_paths_ignore.collect(root, root, locked=False)
+        finally:
+            if old is None:
+                os.environ.pop("CARGO_TARGET_DIR")
+            else:
+                os.environ["CARGO_TARGET_DIR"] = old
+        tracked = sorted(files)
+        return production, tests, tracked
+
+    def test_the_release_build_and_the_tests_are_read_as_well_as_the_debug_build(self):
+        production, tests, _ = self.collect()
+        self.assertIn("src/release_only_tests.rs", production)
+        self.assertNotIn("src/windows_tests.rs", production | tests)
+        self.assertIn("src/real_tests.rs", tests)
+        self.assertNotIn("src/real_tests.rs", production)
+        self.assertEqual({"tests/it.rs", "tests/shared.rs"} - tests, set())
+        self.assertEqual({"tests/it.rs", "tests/shared.rs"} & production, set())
+
+    def test_a_real_test_file_passes_and_the_two_that_cannot_be_shown_do_not(self):
+        production, tests, tracked = self.collect()
+        patterns = ["**/*_tests.rs", "tests/**"]
+        found = check_paths_ignore.check(patterns, tracked, production, tests)
+        self.assertEqual(len(found), 2, found)
+        self.assertTrue(any("release_only_tests.rs, which production is built from" in f for f in found), found)
+        self.assertTrue(any("windows_tests.rs, which no build of the tests reads either" in f for f in found), found)
+        self.assertFalse(any("real_tests.rs" in f or "tests/it.rs" in f or "tests/shared.rs" in f for f in found), found)
+
+
 class TheChecks(unittest.TestCase):
     TRACKED = ["internal/x/src/lib.rs", "internal/x/src/main.rs", "internal/x/tests/a.rs", "internal/x/src/m/tests.rs", "README.md"]
     READ = {"internal/dashboard/server/src/lib.rs", "internal/dashboard/server/src/main.rs"}
+    TESTS = {"internal/x/tests/a.rs", "internal/x/src/m/tests.rs", "internal/x/tests/shared.rs"}
 
     def test_a_pattern_that_matches_a_file_production_reads_is_a_finding(self):
-        found = check_paths_ignore.check(["internal/**/tests/**"], self.TRACKED, self.READ | {"internal/x/tests/shared.rs"})
+        tracked = self.TRACKED + ["internal/x/tests/shared.rs"]
+        found = check_paths_ignore.check(["internal/**/tests/**"], tracked, self.READ | {"internal/x/tests/shared.rs"}, self.TESTS, tuple(self.READ))
         self.assertEqual(found, ["internal/**/tests/** leaves out internal/x/tests/shared.rs, which production is built from"])
 
     def test_a_dead_pattern_and_a_pattern_that_reaches_a_file_that_is_not_rust_are_findings(self):
-        self.assertEqual(check_paths_ignore.check(["internal/**/nothing.rs"], self.TRACKED, self.READ),
+        self.assertEqual(check_paths_ignore.check(["internal/**/nothing.rs"], self.TRACKED, self.READ, self.TESTS),
                          ["internal/**/nothing.rs matches no file of the repository"])
-        self.assertEqual(check_paths_ignore.check(["**/README.md"], self.TRACKED, self.READ),
+        self.assertEqual(check_paths_ignore.check(["**/README.md"], self.TRACKED, self.READ, self.TESTS),
                          ["**/README.md reaches README.md, which is not Rust"])
 
     def test_a_list_that_lacks_the_entry_points_is_a_finding_and_a_clean_one_is_not(self):
-        self.assertEqual(len(check_paths_ignore.check(["internal/**/tests/**"], self.TRACKED, set())), 2)
-        self.assertEqual(check_paths_ignore.check(["internal/**/tests/**", "internal/**/tests.rs"], self.TRACKED, self.READ), [])
+        self.assertEqual(len(check_paths_ignore.check(["internal/**/tests/**"], self.TRACKED, set(), self.TESTS, tuple(self.READ))), 2)
+        self.assertEqual(check_paths_ignore.check(["internal/**/tests/**", "internal/**/tests.rs"], self.TRACKED, self.READ, self.TESTS, tuple(self.READ)), [])
+
+    def test_a_file_that_no_build_of_the_tests_reads_cannot_be_shown_to_be_test_only(self):
+        found = check_paths_ignore.check(["internal/**/tests/**"], self.TRACKED, self.READ, set())
+        self.assertEqual(len(found), 1)
+        self.assertIn("cannot be shown to be only for tests", found[0])
 
     def test_the_configuration_reader_takes_its_shape_and_nothing_else(self):
         good = 'name: x\n\n# a comment\npaths-ignore:\n  - "a/**"\n  - "b.rs"\n'

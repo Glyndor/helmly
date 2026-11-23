@@ -80,6 +80,18 @@ def dep_info_candidates(artifact):
 
 
 def production_files(cargo_json, root, cwd):
+    """The source files of the production artifacts (see `built_files`); a test unit in that output
+    is an error, because the check that produced it was meant to leave tests out."""
+    return built_files(cargo_json, root, cwd, tests=False)
+
+
+def test_files(cargo_json, root, cwd):
+    """The source files of everything that `cargo check --tests` built: the test harnesses of the
+    library and the binaries, the integration tests, and the library they link."""
+    return built_files(cargo_json, root, cwd, tests=True)
+
+
+def built_files(cargo_json, root, cwd, tests):
     """The repository-relative paths of the source files that the artifacts of crates under `root`
     were built from, read from the dep-info next to each artifact, in the output of
     `cargo check --message-format=json` (`cwd` is where cargo ran, which is where relative paths in
@@ -96,7 +108,7 @@ def production_files(cargo_json, root, cwd):
         source = Path(message["target"]["src_path"]).resolve()
         if root not in source.parents:
             continue  # a dependency from a registry
-        if message.get("profile", {}).get("test"):
+        if message.get("profile", {}).get("test") and not tests:
             raise ValueError(f"{source}: a test unit in a check that was meant to leave tests out")
         dep_infos = [d for f in message["filenames"] for d in dep_info_candidates(Path(f)) if d.is_file()]
         if not dep_infos:
