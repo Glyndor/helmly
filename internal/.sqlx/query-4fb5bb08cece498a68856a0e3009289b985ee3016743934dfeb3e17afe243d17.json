@@ -6,17 +6,35 @@
       {
         "ordinal": 0,
         "name": "status",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "migration_state",
+            "name": "status"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "agents_total",
-        "type_info": "Int4"
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "migration_state",
+            "name": "agents_total"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "agents_confirmed",
-        "type_info": "Int4"
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "migration_state",
+            "name": "agents_confirmed"
+          }
+        }
       }
     ],
     "parameters": {

@@ -275,10 +275,12 @@ pub async fn rotate_pg_app_password(state: &AppState) -> Result<(), AppError> {
 
     // Dollar-quoting ($$...$$) avoids any quote-based injection.
     // new_pass is hex [0-9a-f] so "$$" can never appear inside it.
-    sqlx::query(&format!(
+    // sqlx 0.9 refuses a formatted statement unless it is declared audited: the value is
+    // 48 characters of [0-9a-f] from the CSPRNG above, so it cannot carry SQL.
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "ALTER USER helmly_dashboard_app PASSWORD $${}$$",
         *new_pass
-    ))
+    )))
     .execute(&state.db)
     .await
     .map_err(|e| AppError::Internal(anyhow::Error::from(e)))?;
