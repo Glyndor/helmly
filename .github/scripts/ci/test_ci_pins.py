@@ -320,7 +320,11 @@ class ThePinsJob(unittest.TestCase):
     def test_the_step_has_only_the_event_and_the_base_commit(self):
         self.assertEqual(
             self.job["steps"][1]["env"],
-            {"EVENT": "${{ github.event_name }}", "BASE_SHA": "${{ github.event.pull_request.base.sha }}"},
+            {
+                "EVENT": "${{ github.event_name }}",
+                "BASE_SHA": "${{ github.event.pull_request.base.sha }}",
+                "BASE_REF": "${{ github.event.pull_request.base.ref }}",
+            },
         )
         self.assertNotIn("if", self.job["steps"][1])
 
@@ -343,6 +347,15 @@ class ThePinsJob(unittest.TestCase):
         self.assertNotIn('"$script"', before.replace('from_base "$script"', "").replace("script=.github", ""))
         self.assertNotIn("bash ", before)
         self.assertNotIn("source ", before)
+
+    def test_a_base_without_the_script_is_a_failure_unless_the_change_is_a_promotion_into_main(self):
+        run = self.run
+        self.assertIn('elif [ "$BASE_REF" = main ]; then', run)
+        self.assertIn("main has no pin check yet; this promotion brings it", run)
+        self.assertIn("only a promotion into main may lack it", run)
+        after = run[run.index('elif [ "$BASE_REF" = main ]; then'):]
+        self.assertIn("exit 1", after[: after.index("fi\n")])
+        self.assertNotIn("this change introduces it", run)
 
     def test_the_tree_copy_runs_last(self):
         run = self.run
