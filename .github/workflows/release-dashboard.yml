@@ -9,13 +9,40 @@ on:
       tag:
         description: "Tag to release (e.g. dashboard@1.1.0)"
         required: true
+      dry_run:
+        description: "Build, sign and upload the artifacts of this run, and publish nothing"
+        type: boolean
+        default: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  # Everything below needs this job. The tag comes from the event (the name of a pushed tag, or
+  # what the person who started the run typed), so it is checked here against the shape of a
+  # release tag, and the other jobs take it from this job's output and never from the event.
+  tag:
+    name: Validate the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: tag
+        name: Check the shape of the tag
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^dashboard@[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::the tag is not dashboard@MAJOR.MINOR.PATCH[-prerelease]"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
   prepare:
     name: Verify sqlx cache
+    needs: [tag]
     runs-on: ubuntu-latest
 
     services:
@@ -38,25 +65,15 @@ jobs:
         working-directory: internal
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install toolchain
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            internal/target
-          key: rust-${{ github.job }}-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: rust-${{ github.job }}-${{ runner.os }}-
+        run: rustup toolchain install
 
       - name: Install sqlx-cli
-        run: cargo install sqlx-cli --no-default-features --features postgres --locked
+        run: cargo install sqlx-cli --no-default-features --features postgres --locked --version 0.9.1
 
       - name: Run migrations
         env:
@@ -71,6 +88,7 @@ jobs:
 
   ci-server:
     name: CI server (Rust)
+    needs: [tag]
     runs-on: ubuntu-latest
 
     services:
@@ -108,28 +126,19 @@ jobs:
       REDIS_URL: redis://localhost:6379
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install toolchain
-        run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
-
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            internal/target
-          key: rust-${{ github.job }}-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: rust-${{ github.job }}-${{ runner.os }}-
+        run: rustup toolchain install
 
       - name: Install sqlx-cli
-        run: cargo install sqlx-cli --no-default-features --features postgres --locked
+        run: cargo install sqlx-cli --no-default-features --features postgres --locked --version 0.9.1
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        working-directory: ${{ github.workspace }}
+        run: bash .github/scripts/install-cargo-audit.sh
 
       - name: Run migrations
         run: sqlx migrate run --source dashboard/server/migrations
@@ -144,10 +153,11 @@ jobs:
         run: cargo test --package helmly-dashboard-server -- --test-threads=1
 
       - name: audit
-        run: cargo audit --ignore RUSTSEC-2023-0071
+        run: cargo-audit audit --deny warnings
 
   ci-ui:
     name: CI UI (frontend)
+    needs: [tag]
     runs-on: ubuntu-latest
 
     defaults:
@@ -155,12 +165,13 @@ jobs:
         working-directory: internal/dashboard/ui
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install bun
-        run: |
-          curl -fsSL https://bun.sh/install | bash
-          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+        working-directory: ${{ github.workspace }}
+        run: bash .github/scripts/install-bun.sh
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -176,7 +187,7 @@ jobs:
 
   build:
     name: Build ${{ matrix.arch }}
-    needs: [prepare, ci-server, ci-ui]
+    needs: [tag, prepare, ci-server, ci-ui]
     runs-on: ubuntu-latest
 
     strategy:
@@ -198,25 +209,16 @@ jobs:
         working-directory: internal
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # --- Rust backend -------------------------------------------------------
 
       - name: Install toolchain
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install
           rustup target add ${{ matrix.rust-target }}
-
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            internal/target
-          key: rust-${{ github.job }}-${{ matrix.arch }}-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: rust-${{ github.job }}-${{ matrix.arch }}-${{ runner.os }}-
 
       - name: Install musl toolchain (x86_64)
         if: ${{ !matrix.use_cross }}
@@ -224,14 +226,12 @@ jobs:
 
       - name: Install cross (arm64)
         if: ${{ matrix.use_cross }}
-        run: cargo install cross --locked
+        run: cargo install cross --locked --version 0.2.5
 
       - name: Set version from tag
-        run: |
-          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
-          VERSION="${TAG#dashboard@}"
-          sed -i "0,/^version = \"[^\"]*\"/{s/^version = \"[^\"]*\"/version = \"${VERSION}\"/}" dashboard/server/Cargo.toml
-          echo "Set dashboard-server version to ${VERSION}"
+        env:
+          TAG: ${{ needs.tag.outputs.tag }}
+        run: python3 "$GITHUB_WORKSPACE/.github/scripts/release/set_version.py" dashboard/server/Cargo.toml
 
       - name: Build backend (musl static)
         run: |
@@ -247,23 +247,15 @@ jobs:
         env:
           SQLX_OFFLINE: "true"
 
-      - name: Sign backend binary
+      - name: Collect the backend binary
         working-directory: ${{ github.workspace }}
-        env:
-          GLYNDOR_RELEASE_ED25519_KEY: ${{ secrets.GLYNDOR_RELEASE_ED25519_KEY }}
-        run: |
-          pip install --quiet cryptography
-          BINARY="internal/target/${{ matrix.rust-target }}/release/helmly-dashboard-server"
-          ARTIFACT="helmly-dashboard-backend-linux-${{ matrix.arch }}"
-          cp "$BINARY" "$ARTIFACT"
-          python3 .github/scripts/sign.py "$GLYNDOR_RELEASE_ED25519_KEY" "$ARTIFACT"
+        run: cp "internal/target/${{ matrix.rust-target }}/release/helmly-dashboard-server" "helmly-dashboard-backend-linux-${{ matrix.arch }}"
 
       # --- Frontend -----------------------------------------------------------
 
       - name: Install bun
-        run: |
-          curl -fsSL https://bun.sh/install | bash
-          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+        working-directory: ${{ github.workspace }}
+        run: bash .github/scripts/install-bun.sh
 
       - name: Install frontend deps
         working-directory: internal/dashboard/ui
@@ -322,61 +314,133 @@ jobs:
           tar -czf "$TARBALL" -C .next/standalone .
           echo "assets tarball: $(du -sh "$TARBALL" | cut -f1)"
 
-      - name: Sign frontend artifacts
+      - name: Collect the frontend artifacts
         working-directory: ${{ github.workspace }}
-        env:
-          GLYNDOR_RELEASE_ED25519_KEY: ${{ secrets.GLYNDOR_RELEASE_ED25519_KEY }}
         run: |
           cp "internal/dashboard/ui/helmly-dashboard-frontend-linux-${{ matrix.arch }}" .
           cp "internal/dashboard/ui/helmly-dashboard-frontend-assets-linux-${{ matrix.arch }}.tar.gz" .
-          BIN="helmly-dashboard-frontend-linux-${{ matrix.arch }}"
-          ASSETS="helmly-dashboard-frontend-assets-linux-${{ matrix.arch }}.tar.gz"
-          python3 .github/scripts/sign.py "$GLYNDOR_RELEASE_ED25519_KEY" "$BIN"
-          python3 .github/scripts/sign.py "$GLYNDOR_RELEASE_ED25519_KEY" "$ASSETS"
 
       # --- Upload artifacts ---------------------------------------------------
 
-      - name: Upload release artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Upload the unsigned artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dashboard-${{ matrix.arch }}
           path: |
             helmly-dashboard-backend-linux-${{ matrix.arch }}
-            helmly-dashboard-backend-linux-${{ matrix.arch }}.sig
             helmly-dashboard-frontend-linux-${{ matrix.arch }}
-            helmly-dashboard-frontend-linux-${{ matrix.arch }}.sig
             helmly-dashboard-frontend-assets-linux-${{ matrix.arch }}.tar.gz
-            helmly-dashboard-frontend-assets-linux-${{ matrix.arch }}.tar.gz.sig
           retention-days: 1
 
-  release:
-    name: Publish release
-    needs: build
+  # A dry run signs with a key made in the job and says so; the release key is not read.
+  sign-dry-run:
+    name: Sign with a throwaway key (dry run)
+    needs: [tag, build]
+    if: ${{ inputs.dry_run }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The artifacts are data: each architecture goes to its own folder outside the checkout,
+      # and nothing else of the run is downloaded.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dashboard-x86_64
+          path: ${{ runner.temp }}/artifacts/x86_64
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dashboard-arm64
+          path: ${{ runner.temp }}/artifacts/arm64
+
+      - name: Install the signing library from the pinned hashes
+        run: |
+          python3 -m venv "$RUNNER_TEMP/signvenv"
+          "$RUNNER_TEMP/signvenv/bin/python" -m pip install --quiet --require-hashes --only-binary=:all: -r "$GITHUB_WORKSPACE/.github/scripts/release/sign-requirements.txt"
+
+      - name: Make a throwaway key
+        run: |
+          KEY="$(python3 -c 'import base64, os; print(base64.b64encode(os.urandom(32)).decode())')"
+          echo "::add-mask::$KEY"
+          echo "GLYNDOR_RELEASE_ED25519_KEY=$KEY" >> "$GITHUB_ENV"
+          echo "Dry run: signing with a throwaway key made in this job. The release key is not read."
+
+      - name: Sign
+        env:
+          SIGN_PYTHON: ${{ runner.temp }}/signvenv/bin/python
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/release/sign-artifacts.sh" "$RUNNER_TEMP/artifacts"
+
+  # The only job that reads the signing key. It signs what the build jobs uploaded and creates
+  # the release. A run started by hand must be started from the commit the tag points at.
+  release:
+    name: Sign and publish the release
+    needs: [tag, build]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          merge-multiple: true
+          persist-credentials: false
+
+      - name: Check that this commit is the one the tag points at
+        env:
+          TAG: ${{ needs.tag.outputs.tag }}
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          TAG_SHA="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+          if [ "$TAG_SHA" != "$RUN_SHA" ]; then
+            echo "::error::$TAG points at $TAG_SHA and this run is at $RUN_SHA; start the run from the tag"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dashboard-x86_64
+          path: ${{ runner.temp }}/artifacts/x86_64
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dashboard-arm64
+          path: ${{ runner.temp }}/artifacts/arm64
+
+      - name: Install the signing library from the pinned hashes
+        run: |
+          python3 -m venv "$RUNNER_TEMP/signvenv"
+          "$RUNNER_TEMP/signvenv/bin/python" -m pip install --quiet --require-hashes --only-binary=:all: -r "$GITHUB_WORKSPACE/.github/scripts/release/sign-requirements.txt"
+
+      - name: Sign
+        env:
+          GLYNDOR_RELEASE_ED25519_KEY: ${{ secrets.GLYNDOR_RELEASE_ED25519_KEY }}
+          SIGN_PYTHON: ${{ runner.temp }}/signvenv/bin/python
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/release/sign-artifacts.sh" "$RUNNER_TEMP/artifacts"
 
       - name: Create GitHub Release
+        working-directory: ${{ runner.temp }}/artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.tag.outputs.tag }}
         run: |
           gh release create "$TAG" \
             --generate-notes \
-            helmly-dashboard-backend-linux-x86_64 \
-            helmly-dashboard-backend-linux-x86_64.sig \
-            helmly-dashboard-backend-linux-arm64 \
-            helmly-dashboard-backend-linux-arm64.sig \
-            helmly-dashboard-frontend-linux-x86_64 \
-            helmly-dashboard-frontend-linux-x86_64.sig \
-            "helmly-dashboard-frontend-assets-linux-x86_64.tar.gz" \
-            "helmly-dashboard-frontend-assets-linux-x86_64.tar.gz.sig" \
-            helmly-dashboard-frontend-linux-arm64 \
-            helmly-dashboard-frontend-linux-arm64.sig \
-            "helmly-dashboard-frontend-assets-linux-arm64.tar.gz" \
-            "helmly-dashboard-frontend-assets-linux-arm64.tar.gz.sig"
+            x86_64/helmly-dashboard-backend-linux-x86_64 \
+            x86_64/helmly-dashboard-backend-linux-x86_64.sig \
+            x86_64/helmly-dashboard-frontend-linux-x86_64 \
+            x86_64/helmly-dashboard-frontend-linux-x86_64.sig \
+            x86_64/helmly-dashboard-frontend-assets-linux-x86_64.tar.gz \
+            x86_64/helmly-dashboard-frontend-assets-linux-x86_64.tar.gz.sig \
+            arm64/helmly-dashboard-backend-linux-arm64 \
+            arm64/helmly-dashboard-backend-linux-arm64.sig \
+            arm64/helmly-dashboard-frontend-linux-arm64 \
+            arm64/helmly-dashboard-frontend-linux-arm64.sig \
+            arm64/helmly-dashboard-frontend-assets-linux-arm64.tar.gz \
+            arm64/helmly-dashboard-frontend-assets-linux-arm64.tar.gz.sig

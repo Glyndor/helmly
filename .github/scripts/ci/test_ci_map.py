@@ -123,6 +123,10 @@ EXPECTED_SUITES = {
     ".github/scripts/ci/golden/.github__workflows__ci.yml": EVERYTHING,
     ".github/scripts/ci/golden/.github__actions__cargo-tool__action.yml": EVERYTHING,
     ".github/scripts/ci/wiring.py": EVERYTHING,
+    ".github/scripts/ci/ci_common.py": EVERYTHING,
+    ".github/scripts/ci/test_ci_release.py": EVERYTHING,
+    ".github/scripts/release/set_version.py": EVERYTHING,
+    ".github/scripts/release/sign-artifacts.sh": EVERYTHING,
     ".github/scripts/install-cargo-audit.sh": EVERYTHING,
     ".github/workflows/ci.yml": EVERYTHING,
     ".github/workflows/audit.yml": EVERYTHING,
@@ -162,6 +166,7 @@ class MapIsExact(unittest.TestCase):
                 ".github/scripts/ci/**",
                 ".github/actions/**",
                 ".github/scripts/install-*.sh",
+                ".github/scripts/release/**",
             ]),
         )
 
