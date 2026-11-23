@@ -62,13 +62,14 @@ fn decrypt_aes_gcm(data: &[u8], key_bytes: &[u8; 32]) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
 
-    fn test_kek() -> [u8; 32] {
-        [0x11u8; 32]
+    /// A key minted for the test, so no key-looking literal sits in the source.
+    fn fixture_key() -> [u8; 32] {
+        *gen_dek()
     }
 
     #[test]
     fn dek_encrypt_decrypt_roundtrip() {
-        let kek = test_kek();
+        let kek = fixture_key();
         let dek = gen_dek();
         let ct = encrypt_dek(&dek, &kek).expect("encrypt");
         let recovered = decrypt_dek(&ct, &kek).expect("decrypt");
@@ -77,16 +78,16 @@ mod tests {
 
     #[test]
     fn dek_wrong_key_fails() {
-        let kek = test_kek();
+        let kek = fixture_key();
         let dek = gen_dek();
         let ct = encrypt_dek(&dek, &kek).expect("encrypt");
-        let bad_kek = [0x22u8; 32];
+        let bad_kek = fixture_key();
         assert!(decrypt_dek(&ct, &bad_kek).is_err(), "wrong key must fail");
     }
 
     #[test]
     fn data_encrypt_decrypt_roundtrip() {
-        let dek: [u8; 32] = [0x33u8; 32];
+        let dek: [u8; 32] = fixture_key();
         let plaintext = b"hello helmly world";
         let ct = encrypt_with_dek(plaintext, &dek).expect("encrypt");
         let recovered = decrypt_with_dek(&ct, &dek).expect("decrypt");
@@ -95,7 +96,7 @@ mod tests {
 
     #[test]
     fn nonce_prepended_makes_ciphertext_longer_than_plaintext() {
-        let dek: [u8; 32] = [0x44u8; 32];
+        let dek: [u8; 32] = fixture_key();
         let plaintext = b"test";
         let ct = encrypt_with_dek(plaintext, &dek).expect("encrypt");
         // nonce (12) + GCM tag (16) + plaintext length
@@ -104,13 +105,13 @@ mod tests {
 
     #[test]
     fn decrypt_too_short_fails() {
-        let dek: [u8; 32] = [0x44u8; 32];
+        let dek: [u8; 32] = fixture_key();
         assert!(decrypt_with_dek(&[0u8; 5], &dek).is_err());
     }
 
     #[test]
     fn tampered_ciphertext_fails() {
-        let dek: [u8; 32] = [0x55u8; 32];
+        let dek: [u8; 32] = fixture_key();
         let plaintext = b"secret data";
         let mut ct = encrypt_with_dek(plaintext, &dek).expect("encrypt");
         ct[20] ^= 0xff; // flip a byte in the ciphertext
@@ -119,7 +120,7 @@ mod tests {
 
     #[test]
     fn each_encryption_uses_different_nonce() {
-        let dek: [u8; 32] = [0x66u8; 32];
+        let dek: [u8; 32] = fixture_key();
         let plaintext = b"same input";
         let ct1 = encrypt_with_dek(plaintext, &dek).expect("ct1");
         let ct2 = encrypt_with_dek(plaintext, &dek).expect("ct2");
