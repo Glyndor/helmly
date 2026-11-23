@@ -20,7 +20,7 @@ pub fn verify(password: &str, hash: &str) -> Result<bool> {
         .is_ok())
 }
 
-static DUMMY_HASH: &str =
+pub(super) static DUMMY_HASH: &str =
     "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$VtJfVEBMQG4mOXlm5M5Fl8bAHYE5L7Hp/fSKl3y6z2E";
 
 pub fn verify_dummy(password: &str) {
