@@ -3,11 +3,8 @@
 //! salt and a 32-byte hash, with salts that are fixed here so that the bytes can be compared).
 //! A change of the crate may change the API; it may not change one character of these, nor the
 //! parameters that new hashes are made with.
-use super::password::{hash, verify, verify_dummy};
-use argon2::{
-    password_hash::{PasswordHasher, SaltString},
-    Argon2,
-};
+use super::password::{hash, hasher, verify, verify_dummy};
+use argon2::password_hash::PasswordHasher;
 
 struct Vector {
     name: &'static str,
@@ -58,11 +55,11 @@ const VECTORS: &[Vector] = &[
     },
 ];
 
-/// The hash of a text with a given salt, with the default settings of the crate, as the code did.
+/// The hash of a text with a given salt, with the settings of the application.
 fn with_salt(text: &str, salt: &[u8]) -> String {
-    let salt = SaltString::encode_b64(salt).expect("a salt");
-    Argon2::default()
-        .hash_password(text.as_bytes(), &salt)
+    hasher()
+        .expect("settings")
+        .hash_password_with_salt(text.as_bytes(), salt)
         .expect("hash")
         .to_string()
 }

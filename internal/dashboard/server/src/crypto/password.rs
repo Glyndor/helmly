@@ -1,21 +1,37 @@
 use anyhow::Result;
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
+    password_hash::{phc::PasswordHash, PasswordHasher, PasswordVerifier},
+    Algorithm, Argon2, Params, Version,
 };
 use zeroize::Zeroizing;
 
+// The settings that every hash this application has stored was made with. They are the
+// defaults of `argon2` up to 0.6 (the OWASP minimum for Argon2id), written out here so that a
+// change of those defaults in the crate cannot change what new hashes cost or how long they are.
+// A stored hash carries its own settings, and verification reads them from it.
+const MEMORY_KIB: u32 = 19 * 1024;
+const ITERATIONS: u32 = 2;
+const LANES: u32 = 1;
+const OUTPUT_BYTES: usize = 32;
+
+/// Argon2id, version 19, with the settings above.
+pub(super) fn hasher() -> Result<Argon2<'static>> {
+    let params = Params::new(MEMORY_KIB, ITERATIONS, LANES, Some(OUTPUT_BYTES))
+        .map_err(|e| anyhow::anyhow!("argon2 settings: {e}"))?;
+    Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
+}
+
 pub fn hash(password: &str) -> Result<String> {
-    let salt = SaltString::generate(&mut OsRng);
-    Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
+    // A new 16-byte salt from the operating system's generator for every hash.
+    hasher()?
+        .hash_password(password.as_bytes())
         .map(|h| h.to_string())
         .map_err(|e| anyhow::anyhow!("argon2 hash: {e}"))
 }
 
 pub fn verify(password: &str, hash: &str) -> Result<bool> {
     let parsed = PasswordHash::new(hash).map_err(|e| anyhow::anyhow!("parse hash: {e}"))?;
-    Ok(Argon2::default()
+    Ok(hasher()?
         .verify_password(password.as_bytes(), &parsed)
         .is_ok())
 }
