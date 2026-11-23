@@ -1,6 +1,6 @@
 use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit},
-    Aes256Gcm, Key, Nonce,
+    aead::{Aead, Generate, KeyInit},
+    Aes256Gcm, Nonce,
 };
 use anyhow::Result;
 use rand::Rng;
@@ -33,9 +33,9 @@ pub fn decrypt_with_dek(ciphertext: &[u8], dek: &[u8; 32]) -> Result<Vec<u8>> {
 }
 
 fn encrypt_aes_gcm(plaintext: &[u8], key_bytes: &[u8; 32]) -> Result<Vec<u8>> {
-    let key = Key::<Aes256Gcm>::from_slice(key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Aes256Gcm::generate_nonce(&mut aes_gcm::aead::OsRng);
+    let cipher = Aes256Gcm::new(&(*key_bytes).into());
+    // A 12-byte nonce from the operating system's generator, new for every message.
+    let nonce = Nonce::generate();
     let ciphertext = cipher
         .encrypt(&nonce, plaintext)
         .map_err(|e| anyhow::anyhow!("AES-GCM encrypt: {e}"))?;
@@ -50,11 +50,11 @@ fn decrypt_aes_gcm(data: &[u8], key_bytes: &[u8; 32]) -> Result<Vec<u8>> {
         anyhow::bail!("ciphertext too short");
     }
     let (nonce_bytes, ciphertext) = data.split_at(12);
-    let key = Key::<Aes256Gcm>::from_slice(key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Nonce::from_slice(nonce_bytes);
+    let cipher = Aes256Gcm::new(&(*key_bytes).into());
+    let nonce =
+        Nonce::try_from(nonce_bytes).map_err(|_| anyhow::anyhow!("nonce is not 12 bytes"))?;
     cipher
-        .decrypt(nonce, ciphertext)
+        .decrypt(&nonce, ciphertext)
         .map_err(|e| anyhow::anyhow!("AES-GCM decrypt: {e}"))
 }
 
