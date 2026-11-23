@@ -184,15 +184,24 @@ git ls-tree -r "$base" | awk '{ print $3 }' | sort -u > "$baseblobs"
 # reading nothing must never read as finding nothing.
 added=""
 scan_pair() { # <from> <to>: what <to> adds over <from>, both a tree-ish
-	local from="$1" to="$2" file new old unread lines
-	git --literal-pathspecs diff --name-only -z "$from" "$to" > "$names" || { echo "::error::could not take the diff $from $to, so nothing was scanned" >&2; exit 1; }
+	local from="$1" to="$2" meta file newmode old new status unread lines
+	# The changed files, with the ids of their old and new content, come from the structured
+	# output of git (`:oldmode newmode oldid newid status`, a NUL, the path, a NUL), and not from
+	# a revision expression built out of the name: a name that holds `:`, `^{`, `~`, `@{` or
+	# starts with a dash means something to `rev-parse`, and the id it gave back was empty or
+	# another object's, so the file passed as one the base already holds.
+	git --literal-pathspecs diff-tree -r -z --raw --no-renames --no-abbrev "$from" "$to" > "$names" || { echo "::error::could not take the diff $from $to, so nothing was scanned" >&2; exit 1; }
 	# A name with a control character (a line break, a tab) is refused whole, before any
 	# record is made. Bytes outside ASCII are names like any other.
 	[ "$(tr -d '\000\040-\176\200-\377' < "$names" | wc -c)" -eq 0 ] || { echo "::error::a changed file has a control character in its name, so nothing was scanned" >&2; exit 1; }
-	while IFS= read -r -d '' file; do
+	while IFS= read -r -d '' meta && IFS= read -r -d '' file; do
+		read -r _ newmode old new status <<< "${meta#:}"
+		# A deletion and a submodule add no line to read.
+		case "$status" in D*) continue ;; esac
+		[ "$newmode" != 160000 ] || continue
 		if is_allowed "$file"; then continue; fi
-		new="$(git rev-parse -q --verify "$to:$file" || true)"
-		if [ -n "$new" ] && grep -qxF "$new" "$baseblobs"; then continue; fi
+		case "$old" in *[!0]*) ;; *) old="" ;; esac # an all-zero id is no old content
+		if grep -qxF "$new" "$baseblobs"; then continue; fi
 		# The tree being judged carries its own .gitattributes and, on a runner, its own
 		# configuration: a file marked -diff or binary, or given a text conversion or an
 		# external diff, would show no lines. With --text git reads every file as text, a
@@ -205,8 +214,7 @@ scan_pair() { # <from> <to>: what <to> adds over <from>, both a tree-ish
 		# from. A mode change, a deletion and an empty file have nothing to read and pass.
 		unread=false
 		if ! grep -aq '^@@' "$patchfile"; then
-			old="$(git rev-parse -q --verify "$from:$file" || true)"
-			if [ -n "$new" ] && [ "$new" != "$old" ] && [ "$(git cat-file -s "$new")" -gt 0 ]; then unread=true; fi
+			if [ "$new" != "$old" ] && [ "$(git cat-file -s "$new")" -gt 0 ]; then unread=true; fi
 		fi
 		[ "$unread" = false ] || { echo "::error::git showed no added lines for a changed file that is not empty, so nothing was scanned" >&2; exit 1; }
 		# Inside a hunk every line that starts with + is content; a header is only what comes
