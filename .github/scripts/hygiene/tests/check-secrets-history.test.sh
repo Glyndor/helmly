@@ -301,6 +301,45 @@ check "and the merge that brings it in does not hide it" 1 "$(git -C "$repo" rev
 check "and no value is printed" 0 "$(printf '%s' "$out" | grep -cF "$token")"
 git -C "$repo" checkout -q -f --detach "$base"; git -C "$repo" branch -q -D unrelated "$trunk"
 
+# A file name that means something to git when it is put in a revision expression: `a:b`, `x^{tree}`,
+# `-n`, `@{u}`, `HEAD~1`, a wildcard, a path with a colon in a folder. The ids of the content come from
+# the structured output of git, so none of these is taken for a file the base already holds, and each
+# one is read and its token found.
+n=0
+for name in 'a:b' 'x^{tree}' '-n' '@{u}' 'HEAD~1' 'HEAD^' 'a*b' 'dir:x/file' ':/x' '--all' 'a b' 'tab-less'; do
+	n=$((n + 1))
+	git -C "$repo" reset -q --hard "$base"
+	mkdir -p "$repo/$(dirname -- "$name")"
+	printf 't=gh%s_%s\n' "p" "$(rep "$(printf '%x' $((n + 9)))" 36)" > "$repo/$name"
+	gitc add -A -- ":(literal)$name"; gitc commit -q -m "a file called $name"
+	out="$(cd "$repo" && "$SCRIPT" "$base" HEAD 2>&1)"; rc=$?
+	check "a file called [$name] with a token inside is read" "1 1" "$rc $(printf '%s' "$out" | grep -cF -e "$name:1 GitHub token")"
+done
+# the same content already in the base is not read again, whatever the name
+git -C "$repo" reset -q --hard "$base"
+printf 't=%s\n' "$token" > "$repo/orig.txt"; gitc add -A; gitc commit -q -m "the content, already there"
+base_with_content="$(git -C "$repo" rev-parse HEAD)"
+cp "$repo/orig.txt" "$repo/x^{tree}"; gitc add -A -- ":(literal)x^{tree}"; gitc commit -q -m "a copy under a name that means something"
+(cd "$repo" && "$SCRIPT" "$base_with_content" HEAD >/dev/null 2>&1); check "a copy of content the base holds passes under any name" 0 "$?"
+# a name with a line break is refused whole, as before
+git -C "$repo" reset -q --hard "$base"
+printf 't=%s\n' "$token" > "$repo/$(printf 'a\nb')"; gitc add -A; gitc commit -q -m "a line break in the name"
+out="$(cd "$repo" && "$SCRIPT" "$base" HEAD 2>&1)"; rc=$?
+check "a name with a line break is refused and not passed" "1 1" "$rc $(printf '%s' "$out" | grep -c 'control character in its name')"
+# A name that git would read as the output of `git describe` (`<anything>-g<hex>`): the id of a blob the
+# base already holds, in a name, must not stand for the content of the file that carries it.
+git -C "$repo" reset -q --hard "$base"
+printf 'content the base holds\n' > "$repo/known.txt"; gitc add -A; gitc commit -q -m "a blob in the base"
+base_with_blob="$(git -C "$repo" rev-parse HEAD)"
+blob_id="$(git -C "$repo" rev-parse "HEAD:known.txt")"
+printf 't=gh%s_%s\n' "p" "$(rep d 36)" > "$repo/x-g$blob_id"; gitc add -A; gitc commit -q -m "a name made of a blob id"
+out="$(cd "$repo" && "$SCRIPT" "$base_with_blob" HEAD 2>&1)"; rc=$?
+check "a file named x-g<id of a blob of the base> with a token inside is read" "1 1" "$rc $(printf '%s' "$out" | grep -cF -e "x-g$blob_id:1 GitHub token")"
+git -C "$repo" reset -q --hard "$base"
+printf 't=gh%s_%s\n' "p" "$(rep e 36)" > "$repo/${blob_id}"; gitc add -A; gitc commit -q -m "a name that is a bare id"
+out="$(cd "$repo" && "$SCRIPT" "$base" HEAD 2>&1)"; rc=$?
+check "and a file named like a full object id is read as well" "1 1" "$rc $(printf '%s' "$out" | grep -cF -e "$blob_id:1 GitHub token")"
+
 echo "$pass passed, $fail failed"
 printf 'DONE %s %d %d\n' "${BASH_SOURCE[0]##*/}" "$pass" "$fail"
 [ "$fail" -eq 0 ]
