@@ -49,7 +49,7 @@ SUITE_JOBS = {
     "e2e": "ui",
     "shellcheck": "shell",
 }
-ALWAYS_JOBS = ("map", "tree", "audit", "audit-bun")
+ALWAYS_JOBS = ("map", "tree", "pins", "audit", "audit-bun")
 ALL_JOBS = set(SUITE_JOBS) | set(ALWAYS_JOBS) | {"decide", "gate"}
 GUARD_STEP = "Check the plan and what this job needs"
 GATE_STEP = "Every suite passed, or the plan left it out"

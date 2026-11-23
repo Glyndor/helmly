@@ -167,18 +167,7 @@ class TheJob(unittest.TestCase):
         self.assertIn('python3 "$tmp/tree_checks.py" || bad=1', run)
         self.assertIn("python3 .github/scripts/ci/tree_checks.py || bad=1", run)
         self.assertIn('exit "$bad"', run)
-        self.assertEqual(len(self.job["steps"]), 3)
-
-    def test_it_judges_the_pins_with_the_copy_of_the_base_and_with_the_copy_of_the_tree_and_asks_the_network_only_here(self):
-        step = self.job["steps"][2]
-        self.assertEqual(step["env"], {"EVENT": "${{ github.event_name }}", "BASE_SHA": "${{ github.event.pull_request.base.sha }}"})
-        run = step["run"]
-        self.assertIn('git show "$BASE_SHA:.github/scripts/ci/check_pins.py" > "$tmp/check_pins.py"', run)
-        self.assertIn('python3 "$tmp/check_pins.py" || bad=1', run)
-        self.assertIn("python3 .github/scripts/ci/check_pins.py || bad=1", run)
-        self.assertIn('exit "$bad"', run)
-        self.assertNotIn("if", step)
-        self.assertLess(run.index('check_pins.py" > '), run.index("python3 .github/scripts/ci/check_pins.py"))
+        self.assertEqual(len(self.job["steps"]), 2)
 
     def test_the_job_runs_the_judge_of_the_base_even_when_the_tree_copy_would_pass(self):
         run = self.job["steps"][1]["run"]

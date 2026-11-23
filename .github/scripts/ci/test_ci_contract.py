@@ -41,7 +41,7 @@ SUITES = {
     "e2e": "ui",
     "shellcheck": "shell",
 }
-ALWAYS = ("map", "tree", "audit", "audit-bun")
+ALWAYS = ("map", "tree", "pins", "audit", "audit-bun")
 SETUP_RUST = ("uses", "./.github/actions/setup-rust")
 SETUP_BUN = ("uses", "./.github/actions/setup-bun")
 SQLX = ("uses", "./.github/actions/cargo-tool")
