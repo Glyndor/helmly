@@ -1243,6 +1243,7 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "futures-util",
+ "getrandom 0.4.3",
  "josekit",
  "openssl",
  "rand 0.10.4",
