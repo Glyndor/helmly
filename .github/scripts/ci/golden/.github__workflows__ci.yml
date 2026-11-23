@@ -115,6 +115,8 @@ jobs:
         run: |
           python3 .github/scripts/ci/test_ci_map.py
           python3 .github/scripts/ci/test_ci_wiring.py
+          python3 .github/scripts/ci/test_ci_audit.py
+          python3 .github/scripts/ci/test_ci_release.py
 
   # ---- server: cheap tier ----------------------------------------------------
 
