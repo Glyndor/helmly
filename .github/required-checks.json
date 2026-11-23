@@ -1,0 +1,26 @@
+{
+  "comment": "The check names the rulesets should require, and the ones the jobs report besides. A name here that no job produces fails the CI map test, so renaming a job cannot leave a ruleset waiting for a check that no longer exists.",
+  "required": {
+    "develop": [
+      "CI gate"
+    ],
+    "main": [
+      "CI gate (main)",
+      "develop-only"
+    ]
+  },
+  "reported": [
+    "Format",
+    "Audit download URLs",
+    "Security audit",
+    "Check & Clippy",
+    "Test",
+    "TypeScript",
+    "Unit tests (Vitest)",
+    "Security audit (bun)",
+    "E2E tests (Playwright)",
+    "shellcheck",
+    "CI map",
+    "Decide what runs"
+  ]
+}

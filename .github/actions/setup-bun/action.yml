@@ -1,0 +1,13 @@
+name: Set up bun
+description: Install the pinned bun release (checked against its digest) and the dependencies of the UI from its lockfile.
+runs:
+  using: composite
+  steps:
+    - name: Install bun
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/../../scripts/install-bun.sh"
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: internal/dashboard/ui
+      run: bun install --frozen-lockfile

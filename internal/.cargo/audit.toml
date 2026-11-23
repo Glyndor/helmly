@@ -1,0 +1,14 @@
+# Read by cargo-audit from `.cargo/audit.toml`, in the directory it runs in: the audit of a
+# pull request, the audit of a push and the scheduled audit (which reads this file from the
+# audited branch) all accept what is written here, and nothing is ignored on a command line.
+# Each audit runs with `--deny warnings`, so a new warning fails it and only the entries
+# below are accepted.
+[advisories]
+ignore = [
+    # chrono is unmaintained and no version is patched: "all versions are affected". The
+    # server uses it directly in 19 files (30 `chrono::` uses, for timestamps) and through
+    # sqlx-core and sqlx-postgres, which expose chrono types for queries. RustSec names jiff
+    # as the alternative. It is removed by moving the timestamps of the server to jiff or
+    # `time` and sqlx off its `chrono` feature; when that is done this entry goes.
+    "RUSTSEC-2026-0543",
+]

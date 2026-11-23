@@ -33,18 +33,14 @@ if ! command -v shellcheck &>/dev/null; then
 fi
 
 # -----------------------------------------------------------------------------
-# Collect all shell scripts
+# Collect all shell scripts: every tracked *.sh, so a new script is checked without
+# anyone remembering to add it to a list
 # -----------------------------------------------------------------------------
-SCRIPTS=(
-    "$ROOT_DIR/install.sh"
-    "$SCRIPT_DIR/detect-os.sh"
-    "$SCRIPT_DIR/remove-docker.sh"
-    "$SCRIPT_DIR/remove-firewall.sh"
-    "$SCRIPT_DIR/install-podman.sh"
-    "$SCRIPT_DIR/install-nftables.sh"
-    "$ROOT_DIR/internal/dashboard/setup-dashboard.sh"
-    "$ROOT_DIR/internal/dashboard/update-dashboard.sh"
-)
+mapfile -t SCRIPTS < <(git -C "$ROOT_DIR" ls-files '*.sh' | sed "s#^#$ROOT_DIR/#")
+if [[ "${#SCRIPTS[@]}" -eq 0 ]]; then
+    echo -e "${RED}Error: no tracked shell script found.${RESET}" >&2
+    exit 1
+fi
 
 # -----------------------------------------------------------------------------
 # Run shellcheck

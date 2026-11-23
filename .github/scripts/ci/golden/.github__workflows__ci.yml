@@ -1,0 +1,652 @@
+# Every check a pull request or a push to develop runs, in one file, so one map says what
+# each change runs and one job says whether the result is good.
+#
+# What runs: `decide` reads .github/ci-map.json and answers which suites (server, ui,
+# shell) the change touches. Every suite job starts whatever the plan says (`!cancelled()`),
+# first checks that the plan succeeded, that its own answer is a plain true or false and
+# that the jobs it waits for succeeded, and then skips its steps only on an explicit
+# false. GitHub counts a skipped job as passed, so a job that was skipped because the plan
+# failed would read as green; this way it fails instead. The two dependency audits are in
+# no suite: a new advisory appears without any file changing, so they run on every pull
+# request and every push. The one check the rulesets need from this workflow (with
+# `develop-only` on main) is `CI gate`. It always runs, prints each job with its plan and
+# result, and fails unless `decide` succeeded and every job succeeded or was left out by
+# the plan. The name varies by event and by base branch: `CI gate` for a pull request
+# into develop, `CI gate (main)` for one into main, `CI gate (push)` for a push to develop,
+# because the push run plans from the diff of the push, and its result
+# must not satisfy the check of a pull request that points at the same commit. A pull
+# request into main runs every suite, with no plan. `CI map` tests the map and this
+# wiring on every change.
+#
+# When it stops: the cheap jobs (format, URL audit, advisory audits, type check, unit
+# tests, shellcheck) come first and the compiling and browser jobs `need` them, so a red
+# cheap job means the expensive ones never start. A new push to a pull request cancels its
+# earlier run. Nothing here cancels another workflow: the only other one on a pull request
+# is CodeQL, and a functional failure must not stop a security analysis.
+#
+# Triggers: pull requests into develop and main; pushes to develop only. A push to main is
+# the merge commit of a promotion pull request whose tree this workflow just tested, and
+# CodeQL (its own workflow) still analyses it.
+#
+# A job's name is its check's name. .github/required-checks.json lists the names the
+# rulesets should require and the ones the jobs report; a test fails if one of them is no
+# job's name.
+
+name: CI
+
+on:
+  # `edited` is left out on purpose: the gate's name depends on the base branch, so a pull request
+  # pointed at another base has no check of the name its new ruleset requires and stays blocked until
+  # a new run, and editing the title or the body would otherwise restart the whole CI each time.
+  pull_request:
+    branches: [develop, main]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  DATABASE_URL: postgres://helmly_ci:helmly_ci@localhost:5432/helmly_ci
+
+jobs:
+  # Measured 2026-11-23 on the run of #148: the old change detectors took 4 and 6 seconds.
+  decide:
+    name: Decide what runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      server: ${{ steps.decide.outputs.server }}
+      ui: ${{ steps.decide.outputs.ui }}
+      shell: ${{ steps.decide.outputs.shell }}
+    steps:
+      # The base commit of a pull request, so the map and the script that read it are the
+      # ones already merged and a pull request cannot edit them to skip its own checks.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch the pull request head
+        if: github.event_name == 'pull_request'
+        env:
+          PR: ${{ github.event.pull_request.number }}
+        run: git fetch --no-tags origin "refs/pull/${PR}/head"
+
+      - id: decide
+        name: Decide
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ] && [ "$BASE_REF" = main ]; then
+            echo "A pull request into main runs every suite, with no plan."
+            printf '%s\n' server=true ui=true shell=true >> "$GITHUB_OUTPUT"
+          elif [ -f .github/scripts/ci/decide.py ]; then
+            python3 .github/scripts/ci/decide.py
+          else
+            echo "The base commit has no decide script: running every suite."
+            printf '%s\n' server=true ui=true shell=true >> "$GITHUB_OUTPUT"
+          fi
+
+  # Runs on every change: a file nobody owns, or a suite nothing runs, fails here.
+  map:
+    name: CI map
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test the map, the decision, the gate and the wiring
+        run: |
+          python3 .github/scripts/ci/test_ci_map.py
+          python3 .github/scripts/ci/test_ci_wiring.py
+
+  # ---- server: cheap tier ----------------------------------------------------
+
+  fmt:
+    name: Format
+    needs: [decide]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: internal
+    env:
+      PLAN: ${{ needs.decide.outputs.server }}
+    steps:
+      - name: Check the plan and what this job needs
+        working-directory: ${{ github.workspace }}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          if [ "$(jq -r '.decide.result' <<< "$NEEDS")" != success ]; then
+            echo "::error::decide did not succeed, so this job cannot tell whether it has anything to check"
+            exit 1
+          fi
+          case "$PLAN" in
+            true | false) ;;
+            *)
+              echo "::error::the plan for this suite is '$PLAN', neither true nor false"
+              exit 1
+              ;;
+          esac
+          bad=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
+          if [ -n "$bad" ]; then
+            echo "::error::a job this one needs did not succeed:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.PLAN != 'false'
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        if: env.PLAN != 'false'
+        uses: ./.github/actions/setup-rust
+
+      - name: fmt
+        if: env.PLAN != 'false'
+        run: cargo fmt --package helmly-dashboard-server -- --check
+
+  urls:
+    name: Audit download URLs
+    needs: [decide]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PLAN: ${{ needs.decide.outputs.server }}
+    steps:
+      - name: Check the plan and what this job needs
+        working-directory: ${{ github.workspace }}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          if [ "$(jq -r '.decide.result' <<< "$NEEDS")" != success ]; then
+            echo "::error::decide did not succeed, so this job cannot tell whether it has anything to check"
+            exit 1
+          fi
+          case "$PLAN" in
+            true | false) ;;
+            *)
+              echo "::error::the plan for this suite is '$PLAN', neither true nor false"
+              exit 1
+              ;;
+          esac
+          bad=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
+          if [ -n "$bad" ]; then
+            echo "::error::a job this one needs did not succeed:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.PLAN != 'false'
+        with:
+          persist-credentials: false
+
+      - name: Check download URLs are from allowed domains
+        if: env.PLAN != 'false'
+        run: python3 .github/scripts/audit-urls.py
+
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: internal
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install cargo-audit
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/install-cargo-audit.sh"
+
+      - name: audit
+        run: cargo-audit audit --deny warnings
+
+  # ---- server: expensive tier, only after the cheap tier is green -------------
+
+  clippy:
+    name: Check & Clippy
+    needs: [decide, fmt, urls]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PLAN: ${{ needs.decide.outputs.server }}
+      DATABASE_URL: postgres://helmly_ci:helmly_ci@localhost:5432/helmly_ci
+    defaults:
+      run:
+        working-directory: internal
+    steps:
+      - name: Check the plan and what this job needs
+        working-directory: ${{ github.workspace }}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          if [ "$(jq -r '.decide.result' <<< "$NEEDS")" != success ]; then
+            echo "::error::decide did not succeed, so this job cannot tell whether it has anything to check"
+            exit 1
+          fi
+          case "$PLAN" in
+            true | false) ;;
+            *)
+              echo "::error::the plan for this suite is '$PLAN', neither true nor false"
+              exit 1
+              ;;
+          esac
+          bad=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
+          if [ -n "$bad" ]; then
+            echo "::error::a job this one needs did not succeed:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.PLAN != 'false'
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        if: env.PLAN != 'false'
+        uses: ./.github/actions/setup-rust
+
+      - name: Install sqlx-cli
+        if: env.PLAN != 'false'
+        uses: ./.github/actions/cargo-tool
+        with:
+          crate: sqlx-cli
+          version: "0.9.1"
+          features: postgres
+
+      - name: Start the databases
+        if: env.PLAN != 'false'
+        working-directory: ${{ github.workspace }}
+        run: bash .github/scripts/ci/start-services.sh postgres
+
+      - name: Run migrations
+        if: env.PLAN != 'false'
+        run: sqlx migrate run --source dashboard/server/migrations
+
+      - name: sqlx cache
+        if: env.PLAN != 'false'
+        working-directory: internal/dashboard/server
+        run: cargo sqlx prepare --check
+
+      - name: clippy
+        if: env.PLAN != 'false'
+        run: cargo clippy --locked --package helmly-dashboard-server --all-targets -- -D warnings
+
+  test:
+    name: Test
+    needs: [decide, clippy]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PLAN: ${{ needs.decide.outputs.server }}
+      DATABASE_URL: postgres://helmly_ci:helmly_ci@localhost:5432/helmly_ci
+    defaults:
+      run:
+        working-directory: internal
+    steps:
+      - name: Check the plan and what this job needs
+        working-directory: ${{ github.workspace }}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          if [ "$(jq -r '.decide.result' <<< "$NEEDS")" != success ]; then
+            echo "::error::decide did not succeed, so this job cannot tell whether it has anything to check"
+            exit 1
+          fi
+          case "$PLAN" in
+            true | false) ;;
+            *)
+              echo "::error::the plan for this suite is '$PLAN', neither true nor false"
+              exit 1
+              ;;
+          esac
+          bad=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
+          if [ -n "$bad" ]; then
+            echo "::error::a job this one needs did not succeed:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.PLAN != 'false'
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        if: env.PLAN != 'false'
+        uses: ./.github/actions/setup-rust
+
+      - name: Install sqlx-cli
+        if: env.PLAN != 'false'
+        uses: ./.github/actions/cargo-tool
+        with:
+          crate: sqlx-cli
+          version: "0.9.1"
+          features: postgres
+
+      - name: Start the databases
+        if: env.PLAN != 'false'
+        working-directory: ${{ github.workspace }}
+        run: bash .github/scripts/ci/start-services.sh postgres valkey
+
+      - name: Run migrations
+        if: env.PLAN != 'false'
+        run: sqlx migrate run --source dashboard/server/migrations
+
+      - name: test
+        if: env.PLAN != 'false'
+        run: cargo test --locked --package helmly-dashboard-server -- --test-threads=1
+        env:
+          REDIS_URL: redis://localhost:6379
+
+  # ---- ui: cheap tier --------------------------------------------------------
+
+  typecheck:
+    name: TypeScript
+    needs: [decide]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: internal/dashboard/ui
+    env:
+      PLAN: ${{ needs.decide.outputs.ui }}
+    steps:
+      - name: Check the plan and what this job needs
+        working-directory: ${{ github.workspace }}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          if [ "$(jq -r '.decide.result' <<< "$NEEDS")" != success ]; then
+            echo "::error::decide did not succeed, so this job cannot tell whether it has anything to check"
+            exit 1
+          fi
+          case "$PLAN" in
+            true | false) ;;
+            *)
+              echo "::error::the plan for this suite is '$PLAN', neither true nor false"
+              exit 1
+              ;;
+          esac
+          bad=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
+          if [ -n "$bad" ]; then
+            echo "::error::a job this one needs did not succeed:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.PLAN != 'false'
+        with:
+          persist-credentials: false
+
+      - name: Set up bun
+        if: env.PLAN != 'false'
+        uses: ./.github/actions/setup-bun
+
+      - name: typecheck
+        if: env.PLAN != 'false'
+        run: bun run typecheck
+
+  unit:
+    name: Unit tests (Vitest)
+    needs: [decide]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: internal/dashboard/ui
+    env:
+      PLAN: ${{ needs.decide.outputs.ui }}
+    steps:
+      - name: Check the plan and what this job needs
+        working-directory: ${{ github.workspace }}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          if [ "$(jq -r '.decide.result' <<< "$NEEDS")" != success ]; then
+            echo "::error::decide did not succeed, so this job cannot tell whether it has anything to check"
+            exit 1
+          fi
+          case "$PLAN" in
+            true | false) ;;
+            *)
+              echo "::error::the plan for this suite is '$PLAN', neither true nor false"
+              exit 1
+              ;;
+          esac
+          bad=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
+          if [ -n "$bad" ]; then
+            echo "::error::a job this one needs did not succeed:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.PLAN != 'false'
+        with:
+          persist-credentials: false
+
+      - name: Set up bun
+        if: env.PLAN != 'false'
+        uses: ./.github/actions/setup-bun
+
+      - name: test
+        if: env.PLAN != 'false'
+        run: bun run test
+
+  audit-bun:
+    name: Security audit (bun)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: internal/dashboard/ui
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up bun
+        uses: ./.github/actions/setup-bun
+
+      - name: audit
+        run: bun audit --audit-level high
+
+  # ---- ui: expensive tier ----------------------------------------------------
+
+  e2e:
+    name: E2E tests (Playwright)
+    needs: [decide, typecheck, unit, audit-bun]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: internal/dashboard/ui
+    env:
+      PLAN: ${{ needs.decide.outputs.ui }}
+    steps:
+      - name: Check the plan and what this job needs
+        working-directory: ${{ github.workspace }}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          if [ "$(jq -r '.decide.result' <<< "$NEEDS")" != success ]; then
+            echo "::error::decide did not succeed, so this job cannot tell whether it has anything to check"
+            exit 1
+          fi
+          case "$PLAN" in
+            true | false) ;;
+            *)
+              echo "::error::the plan for this suite is '$PLAN', neither true nor false"
+              exit 1
+              ;;
+          esac
+          bad=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
+          if [ -n "$bad" ]; then
+            echo "::error::a job this one needs did not succeed:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.PLAN != 'false'
+        with:
+          persist-credentials: false
+
+      - name: Set up bun
+        if: env.PLAN != 'false'
+        uses: ./.github/actions/setup-bun
+
+      - name: Install Playwright browsers
+        if: env.PLAN != 'false'
+        run: bun x playwright install chromium --with-deps
+
+      - name: Build
+        if: env.PLAN != 'false'
+        run: bun run build
+        env:
+          BACKEND_URL: http://localhost:8080
+
+      - name: Run E2E tests
+        if: env.PLAN != 'false'
+        run: bun run test:e2e
+        env:
+          CI: "true"
+          BACKEND_URL: http://localhost:8080
+
+      - name: Upload Playwright report
+        if: env.PLAN != 'false' && failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: internal/dashboard/ui/playwright-report/
+          retention-days: 7
+
+  # ---- shell -------------------------------------------------------------------
+
+  shellcheck:
+    name: shellcheck
+    needs: [decide]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PLAN: ${{ needs.decide.outputs.shell }}
+    steps:
+      - name: Check the plan and what this job needs
+        working-directory: ${{ github.workspace }}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          if [ "$(jq -r '.decide.result' <<< "$NEEDS")" != success ]; then
+            echo "::error::decide did not succeed, so this job cannot tell whether it has anything to check"
+            exit 1
+          fi
+          case "$PLAN" in
+            true | false) ;;
+            *)
+              echo "::error::the plan for this suite is '$PLAN', neither true nor false"
+              exit 1
+              ;;
+          esac
+          bad=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
+          if [ -n "$bad" ]; then
+            echo "::error::a job this one needs did not succeed:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.PLAN != 'false'
+        with:
+          persist-credentials: false
+
+      - name: Syntax check (bash -n)
+        if: env.PLAN != 'false'
+        run: git ls-files -z '*.sh' | xargs -0 -n1 bash -n
+
+      - name: Install shellcheck
+        if: env.PLAN != 'false'
+        run: bash .github/scripts/install-shellcheck.sh
+
+      - name: Run shellcheck
+        if: env.PLAN != 'false'
+        run: bash scripts/lint.sh
+
+  # The only check the ruleset needs from this workflow (with `develop-only` on main). GitHub
+  # counts a skipped job as passed, so a suite that was skipped because a job before it failed,
+  # or because `decide` failed, would read as green. This job runs always and passes only when
+  # `decide` succeeded and every job succeeded or was left out because the plan said so.
+  gate:
+    name: ${{ github.event_name == 'pull_request' && (github.event.pull_request.base.ref == 'main' && 'CI gate (main)' || 'CI gate') || format('CI gate ({0})', github.event_name) }}
+    needs: [decide, map, fmt, urls, audit, clippy, test, typecheck, unit, audit-bun, e2e, shellcheck]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every suite passed, or the plan left it out
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          SUITES: '{"fmt":"server","urls":"server","clippy":"server","test":"server","typecheck":"ui","unit":"ui","e2e":"ui","shellcheck":"shell"}'
+        run: |
+          set -euo pipefail
+          echo "job | plan | result"
+          jq -r --argjson suites "$SUITES" '
+            . as $n | to_entries[]
+            | "\(.key) | \(if $suites[.key] == null then "always" else $n.decide.outputs[$suites[.key]] // "missing" end) | \(.value.result)"
+          ' <<< "$NEEDS"
+          problems=$(jq -r --argjson suites "$SUITES" '
+            . as $n
+            | ($n.decide.result == "success") as $planned
+            | (if $planned then empty else "decide: \($n.decide.result)" end),
+              ($n | to_entries[] | select(.key != "decide") | .key as $job | .value.result as $result
+                | if $result == "success" then empty
+                  elif $result == "skipped" and $planned and ($suites[$job] != null)
+                       and ($n.decide.outputs[$suites[$job]] == "false") then empty
+                  else "\($job): \($result)" end)
+          ' <<< "$NEEDS")
+          if [ -n "$problems" ]; then
+            echo "::error::these jobs did not pass and the plan did not leave them out:"
+            echo "$problems"
+            exit 1
+          fi
+          echo "Every job passed or was left out by the plan."
