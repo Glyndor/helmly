@@ -1,0 +1,25 @@
+# What the CodeQL analysis of this repository leaves out, and nothing else.
+#
+# Only test code. Rust that is built only for tests (an integration test, a module under
+# `#[cfg(test)]`) holds vectors of known answers and fixtures with passwords, salts and keys in
+# plain sight on purpose: the hard-coded-cryptographic-value and cleartext-logging queries read
+# that as a finding in production, and every alert would have to be dismissed by hand in GitHub,
+# where the decision is not reviewed, does not show in a diff, and has to be repeated for each
+# vector that is added. No query is switched off and no production path is listed:
+# `.github/scripts/codeql/test_codeql_paths.py` walks the module tree of every crate and fails
+# when a file that is compiled outside `#[cfg(test)]` matches one of these patterns, when a
+# pattern matches nothing, or when a pattern reaches a file that is not Rust.
+#
+# `paths-ignore` is the documented way to leave files out of an analysis that does not build the
+# code, which is how `codeql.yml` runs Rust (`build-mode: none`). The patterns follow the rules of
+# that documentation: `**` only at the start, at the end or between slashes, and the characters
+# `? + [ ] !` are matched literally, so none is used.
+name: helmly
+
+paths-ignore:
+  # The integration tests of a crate: cargo builds them only for `cargo test`.
+  - "internal/**/tests/**"
+  # A test module in its own file next to what it tests: `foo/tests.rs` for `mod tests;`, and
+  # `foo_tests.rs` for a module that is declared under `#[cfg(test)]`.
+  - "internal/**/tests.rs"
+  - "internal/**/*_tests.rs"

@@ -60,6 +60,7 @@ COMMANDS = {
         MIGRATE,
         ("run", "cargo sqlx prepare --check"),
         ("run", "cargo clippy --locked --package helmly-dashboard-server --all-targets -- -D warnings"),
+        ("run", "python3 -I .github/scripts/codeql/check_paths_ignore.py"),
     ],
     "test": [
         CHECKOUT_STEP,

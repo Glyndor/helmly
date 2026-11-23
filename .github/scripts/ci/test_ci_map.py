@@ -129,6 +129,8 @@ EXPECTED_SUITES = {
     ".github/scripts/ci/structure.py": EVERYTHING,
     ".github/scripts/ci/test_ci_structure.py": EVERYTHING,
     ".github/scripts/hygiene/check-secrets.sh": EVERYTHING,
+    ".github/codeql/codeql-config.yml": EVERYTHING,
+    ".github/scripts/codeql/test_codeql_paths.py": EVERYTHING,
     ".github/scripts/hygiene/tests/check-dco.test.sh": EVERYTHING,
     ".github/structure.json": EVERYTHING,
     ".github/scripts/ci/tree_checks.py": EVERYTHING,
@@ -181,6 +183,8 @@ class MapIsExact(unittest.TestCase):
                 ".github/scripts/install-*.sh",
                 ".github/scripts/release/**",
                 ".github/scripts/hygiene/**",
+                ".github/codeql/**",
+                ".github/scripts/codeql/**",
                 ".github/structure.json",
             ]),
         )
