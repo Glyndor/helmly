@@ -4,3 +4,6 @@ pub mod jwt;
 pub mod kek;
 pub mod password;
 pub mod pki;
+
+#[cfg(test)]
+mod kek_vectors;
