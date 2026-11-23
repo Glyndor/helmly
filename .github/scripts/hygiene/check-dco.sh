@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 #
 # The Developer Certificate of Origin, as a check: every commit a pull request adds, a merge
-# aside, must carry a `Signed-off-by:` trailer, and no merge commit may carry a tree that is
-# not the clean merge of its two parents.
+# aside, must carry a `Signed-off-by: Name <address>` trailer whose address is the one of the
+# commit's author (an empty trailer, one with no address and one signed for somebody else are
+# not a sign-off), and no merge commit may carry a tree that is not the clean merge of its two
+# parents.
 #
 # The second half is why a merge is not simply exempt. A merge commit is excused from its own
 # trailer, so a hand-edited one would carry a change that exists in neither parent and never
@@ -26,8 +28,17 @@ commits="$(git rev-list --no-merges "$base..$head")" || {
 bad=0
 while IFS= read -r sha; do
 	[ -n "$sha" ] || continue
-	if ! git show -s --format='%(trailers:key=Signed-off-by)' "$sha" | grep -qi 'Signed-off-by:'; then
-		echo "::error::commit $sha has no Signed-off-by trailer"
+	author="$(git show -s --format='%ae' "$sha")" || exit 1
+	values="$(git show -s --format='%(trailers:key=Signed-off-by,valueonly,unfold)' "$sha")" || exit 1
+	signed=false
+	while IFS= read -r value; do
+		# `Name <address>`: a name, then one address in angle brackets and nothing after it.
+		if [[ "$value" =~ ^[^\<\>]*[^\<\>[:space:]][^\<\>]*\<([^\<\>[:space:]]+@[^\<\>[:space:]]+)\>[[:space:]]*$ ]]; then
+			[ "${BASH_REMATCH[1],,}" != "${author,,}" ] || signed=true
+		fi
+	done <<< "$values"
+	if [ "$signed" = false ]; then
+		echo "::error::commit $sha has no Signed-off-by: Name <address> trailer with the address of its author"
 		bad=1
 	fi
 done <<< "$commits"

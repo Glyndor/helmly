@@ -122,6 +122,60 @@ check "a grep that fails stops the scan, with an error and no clean verdict" "2 
 (cd "$repo" && "$SCRIPT" "$base" HEAD >/dev/null 2>&1); check "and the same clean change passes with a grep that works" 0 "$?"
 
 
+scan() { # <line>: commit it alone on top of the base and scan it
+	git -C "$repo" reset -q --hard "$base"
+	printf '%s\n' "$1" > "$repo/probe.txt"; gitc add -A; gitc commit -q -m probe
+	(cd "$repo" && "$SCRIPT" "$base" HEAD 2>&1)
+}
+
+# The two loops that read the candidate lines, and the fake grep that fails only for their own
+# pattern: the header search (a pattern that ends the header) and the assignment search.
+printf '#!/bin/sh\ncase "$*" in *"BLOCK)?-----)") exit 2 ;; esac\nexec %s "$@"\n' "$real_grep" > "$shim/grep"
+git -C "$repo" reset -q --hard "$base"; printf 'just text\n' > "$repo/clean.txt"; gitc add -A; gitc commit -q -m clean
+out="$(cd "$repo" && PATH="$shim:$PATH" "$SCRIPT" "$base" HEAD 2>&1)"; rc=$?
+check "a grep that fails in the search for key headers stops the scan" "2 0" "$rc $(printf '%s' "$out" | grep -c 'no credential-shaped lines added')"
+printf '#!/bin/sh\ncase "$*" in *"passw(or)?d"*) exit 2 ;; esac\nexec %s "$@"\n' "$real_grep" > "$shim/grep"
+out="$(cd "$repo" && PATH="$shim:$PATH" "$SCRIPT" "$base" HEAD 2>&1)"; rc=$?
+check "a grep that fails in the search for assignments stops the scan" "2 0" "$rc $(printf '%s' "$out" | grep -c 'no credential-shaped lines added')"
+
+# The line after a header is looked for among every record of that path and number: the pair
+# turns up once for each commit that touches it. The header and the body are added by one
+# commit and taken out by the next, and the final file has other text on both lines.
+git -C "$repo" reset -q --hard "$base"
+printf 'plain one\nplain two\n' > "$repo/p.txt"; gitc add -A; gitc commit -q -m "plain"
+printf 'data = ["%s",\n  "%s",\n]\n' "$H" "$body" > "$repo/p.txt"; gitc add -A; gitc commit -q -m "key"
+printf 'plain one\nplain two\n' > "$repo/p.txt"; gitc add -A; gitc commit -q -m "back to plain"
+out="$(cd "$repo" && "$SCRIPT" "$base" HEAD 2>&1)"; rc=$?
+check "a key whose header and body were added together and taken out later is found" "1 1" "$rc $(printf '%s' "$out" | grep -c 'p.txt:1 private key spread over lines')"
+
+# An assignment is not only name, colon or equals sign and value: a tab, a type and an
+# operator of several characters are assignments too. Each is paired with a form that
+# passes (a variable that names a file, a sample value).
+v="$(rep k 40)"
+tab="$(printf '\t')"
+for form in \
+	"token${tab}=${tab}\"$v\"" \
+	"const TOKEN: &str = \"$v\";" \
+	"const API_KEY: &'static str = \"$v\";" \
+	"let token: String = \"$v\".to_string();" \
+	"token: string = \"$v\";" \
+	"token := \"$v\"" \
+	"token => \"$v\"," \
+	"password:${tab}'$v'" \
+	"secret: Vec<u8> = \"$v\";"; do
+	out="$(scan "$form")"; rc=$?
+	check "an assignment written as [$(printf '%s' "$form" | sed "s/$v/VALUE/")] is found" "1 1" "$rc $(printf '%s' "$out" | grep -c 'long value assigned to a secret-like name')"
+done
+for form in \
+	"const TOKEN_FILE: &str = \"/run/secrets/$v\";" \
+	"token_path${tab}:= \"$v\"" \
+	"const TOKEN: &str = \"your-$v\";" \
+	"token: string = \"example_$v\";" \
+	"let n: u32 = 12;"; do
+	out="$(scan "$form")"; rc=$?
+	check "a sample or a path written as [$(printf '%s' "$form" | sed "s/$v/VALUE/")] passes" 0 "$rc"
+done
+
 echo "$pass passed, $fail failed"
 printf 'DONE %s %d %d\n' "${BASH_SOURCE[0]##*/}" "$pass" "$fail"
 [ "$fail" -eq 0 ]

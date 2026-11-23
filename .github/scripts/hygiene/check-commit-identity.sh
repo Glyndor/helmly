@@ -37,14 +37,14 @@ flag() { # <sha> <what>
 # follows the key before the colon, is read with its continuation lines joined.
 trailer_values() { # <sha> <key>
 	git show -s --format='%B' "$1" | awk -v key="$2" '
-		function flush() { gsub(/^[ \t]+|[ \t]+$/, "", cur); gsub(/[ \t]+/, " ", cur); if (cur != "") print cur; cur = "" }
+		function flush() { gsub(/^[ \t]+|[ \t]+$/, "", cur); gsub(/[ \t]+/, " ", cur); if (have) print (cur == "" ? "<empty>" : cur); cur = ""; have = 0 }
 		BEGIN { want = tolower(key) }
 		{
 			low = tolower($0)
 			if (substr(low, 1, length(want)) == want && substr(low, length(want) + 1) ~ /^[ \t]*:/) {
-				flush(); cur = substr($0, length(want) + 1); sub(/^[ \t]*:/, "", cur); next
+				flush(); have = 1; cur = substr($0, length(want) + 1); sub(/^[ \t]*:/, "", cur); next
 			}
-			if (cur != "" && $0 ~ /^[ \t]+[^ \t]/) { cur = cur " " $0; next }
+			if (have && $0 ~ /^[ \t]+[^ \t]/) { cur = cur " " $0; next }
 			flush()
 		}
 		END { flush() }'
@@ -74,6 +74,7 @@ while IFS= read -r sha; do
 		values="$(printf '%s\n' "$values" | LC_ALL=C sort -u)"
 		while IFS= read -r value; do
 			[ -n "$value" ] || continue
+			if [ "$value" = "<empty>" ]; then flag "$sha" "a $key with no value"; continue; fi
 			# Every address-shaped token in the value, not just the one inside the
 			# last <...>: a trailer can carry two, and a personal one in front of a
 			# noreply one must not pass. A value with no address is refused too.

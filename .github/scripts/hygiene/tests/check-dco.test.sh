@@ -54,6 +54,31 @@ g checkout -q main; g checkout -q -b right; echo r > "$repo/x"; g add -A; g comm
 g merge -q --no-commit --no-ff left >/dev/null 2>&1; echo resolved > "$repo/x"; g add -A; g commit -q -m "merge, resolved by hand"
 check "a merge that needed a hand resolution fails closed" 1 "$(run "$base" HEAD)"
 
+# What counts as a sign-off: `Name <address>` with the address of the author. The twin of
+# each refusal passes.
+sign() { # <message>: a commit by t@x with exactly this message
+	g reset -q --hard "$base"
+	echo one > "$repo/b"; g add -A; g commit -q -m "$1"
+}
+sign "$(printf 'x\n\nSigned-off-by:')"
+check "an empty Signed-off-by fails" 1 "$(run "$base" HEAD)"
+sign "$(printf 'x\n\nSigned-off-by: someone')"
+check "a Signed-off-by with no address fails" 1 "$(run "$base" HEAD)"
+sign "$(printf 'x\n\nSigned-off-by: someone <someone@elsewhere.example>')"
+check "a Signed-off-by for somebody else fails" 1 "$(run "$base" HEAD)"
+sign "$(printf 'x\n\nSigned-off-by: <t@x>')"
+check "a Signed-off-by with no name fails" 1 "$(run "$base" HEAD)"
+sign "$(printf 'x\n\nSigned-off-by: t <t@x> and more')"
+check "a Signed-off-by with text after the address fails" 1 "$(run "$base" HEAD)"
+sign "$(printf 'x\n\nSigned-off-by: t <t@x>')"
+check "a Signed-off-by with the address of the author passes" 0 "$(run "$base" HEAD)"
+sign "$(printf 'x\n\nSigned-off-by: T Name <T@X>')"
+check "and so does one that differs only in case" 0 "$(run "$base" HEAD)"
+sign "$(printf 'x\n\nSigned-off-by: someone <someone@elsewhere.example>\nSigned-off-by: t <t@x>')"
+check "one matching sign-off among others passes" 0 "$(run "$base" HEAD)"
+sign "$(printf 'x\n\nSigned-off-by: t\n <t@x>')"
+check "a value folded onto the next line passes" 0 "$(run "$base" HEAD)"
+
 check "an unreadable range fails" 1 "$(run "$base" nonexistent)"
 check "no arguments fails" 1 "$( (cd "$repo" && bash "$SCRIPT" > /dev/null 2>&1; echo $?) | sed 's/^2$/1/')"
 

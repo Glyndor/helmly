@@ -185,6 +185,19 @@ git -C "$repo" checkout -q -f "$base" 2>/dev/null; git -C "$repo" reset -q --har
 
 
 
+# A trailer with nothing after the key is not a trailer with nothing to check.
+git -C "$repo" reset -q --hard "$base"
+commit "$noreply" "$(printf 'x\n\nSigned-off-by:')"
+out="$(run)"; rc=$?
+check "an empty Signed-off-by fails" 1 "$rc"
+check "and the message says it has no value" 1 "$(printf '%s' "$out" | grep -c 'no value')"
+git -C "$repo" reset -q --hard "$base"
+commit "$noreply" "$(printf 'x\n\nCo-authored-by:   ')"
+run >/dev/null; check "an empty Co-authored-by fails" 1 "$?"
+git -C "$repo" reset -q --hard "$base"
+commit "$noreply" "$(printf 'x\n\nSigned-off-by:\n <%s>' "$noreply")"
+run >/dev/null; check "a value on the next line is not an empty one" 0 "$?"
+
 "$SCRIPT" >/dev/null 2>&1; check "no arguments fails" 1 "$?"
 
 echo "$pass passed, $fail failed"

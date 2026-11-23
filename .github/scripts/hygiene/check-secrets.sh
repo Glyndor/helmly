@@ -202,43 +202,65 @@ done
 header_re='-----BEGIN ((RSA|EC|OPENSSH|DSA|PGP|ENCRYPTED) )?PRIVATE KEY( BLOCK)?-----'
 body_re='^[[:space:]]*["'"'"'`]?[A-Za-z0-9+/]{32,}={0,2}[[:space:]]*(\\n)?["'"'"'`]?,?[[:space:]]*\\?$'
 spread=""
+# The candidates are captured first: a substitution inside a here-string would hide the status
+# of `matching` from set -e, and a grep that failed would read as a scan with nothing to look at.
+candidates="$(printf '%s\n' "$added" | matching -E -- "$prefix.*($header_re)")" || exit 2
 while IFS="$SEP" read -r path n text; do
 	[ -n "$path" ] || continue
-	rec="$(printf '%s\n' "$added" | P="$path" N="$((n + 1))" awk -F"$SEP" '$1 == ENVIRON["P"] && $2 == ENVIRON["N"] { print; exit }')" || exit 1
-	[ -n "$rec" ] || continue
-	next="${rec#*"$SEP"}"; next="${next#*"$SEP"}"
-	if printf '%s\n' "$next" | grep -aqE -- "$body_re"; then
-		spread="${spread:+$spread$'\n'}${path}${SEP}${n}${SEP}spread"
-	fi
-done <<< "$(printf '%s\n' "$added" | matching -E -- "$prefix.*($header_re)")"
+	# Every record of that path and number, not the first: the same pair turns up once per
+	# commit that touches the line, and the body can be in any of them.
+	recs="$(printf '%s\n' "$added" | P="$path" N="$((n + 1))" awk -F"$SEP" '$1 == ENVIRON["P"] && $2 == ENVIRON["N"] { print }')" || exit 1
+	while IFS= read -r rec; do
+		[ -n "$rec" ] || continue
+		next="${rec#*"$SEP"}"; next="${next#*"$SEP"}"
+		if printf '%s\n' "$next" | grep -aqE -- "$body_re"; then
+			spread="${spread:+$spread$'\n'}${path}${SEP}${n}${SEP}spread"
+			break
+		fi
+	done <<< "$recs"
+done <<< "$candidates"
 [ -z "$spread" ] || report "private key spread over lines" "$spread"
 
 # A credential with a format of its own is caught by the name it is assigned to.
-generic='(token|secret|passw(or)?d|api[_-]?key|private[_-]?key|signing[_-]?key|access[_-]?key|ed25519[_-]?key|mldsa[0-9_-]*key|credential)[a-z0-9_]*["'"'"']?[ \t]*[:=][ \t]*["'"'"']?[a-z0-9+/_=-]{32,}'
+generic_name='(token|secret|passw(or)?d|api[_-]?key|private[_-]?key|signing[_-]?key|access[_-]?key|ed25519[_-]?key|mldsa[0-9_-]*key|credential)[a-z0-9_]*'
+# An optional type between the name and the operator (`const TOKEN: &str = "..."`,
+# `token: string = "..."`), then an operator of one or more characters (`=`, `:`, `:=`, `=>`,
+# `==`), then the value. The blank is a space or a tab: inside a bracket expression a `\t` is
+# a backslash and a t, so the class says what it means.
+generic_annotation='([[:blank:]]*:[[:blank:]]*[A-Za-z_&][][A-Za-z0-9_<>&'"'"';,[:blank:]]*)?'
+generic="${generic_name}[\"']?${generic_annotation}[[:blank:]]*(:=|=>|==|=|:)[[:blank:]]*[\"']?([a-z0-9+/_=-]{32,})"
 # What excuses an assignment is read in the assignment itself, not in the line around it:
 # the name of a variable that holds a file, a path or an address is not a secret, and a
 # value that carries a sample word of its own, as a word and not as a run of letters of a
 # key, is a sample. A word in the name, in a comment or in the path says nothing about the value.
-named_path='_(file|path|dir|url|name|env|var)[a-z0-9_]*["'"'"']?[ \t]*[:=]'
+named_path='_(file|path|dir|url|name|env|var)[a-z0-9_]*["'"'"']?[[:blank:]]*[:=]'
 sample_word='(^|[^a-z0-9])(example|placeholder|dummy|fake|fixture|changeme|redacted|your)([^a-z0-9]|$)'
 real_value() { # <text of a line>: succeeds when some assignment in it is not a sample
-	local matches m name sep value
-	matches="$(grep -aoiE -- "$generic" <<< "$1")" || return 0
-	while IFS= read -r m; do
-		[ -n "$m" ] || continue
-		name="${m%%[:=]*}"; sep="${m:${#name}:1}"; value="${m:$((${#name} + 1))}"
-		if grep -aqiE -- "$named_path" <<< "$name$sep"; then continue; fi
-		if grep -aqiE -- "$sample_word" <<< "$value"; then continue; fi
-		return 0
-	done <<< "$matches"
+	local rest="$1" found=false whole value pre
+	shopt -s nocasematch
+	while [[ "$rest" =~ $generic ]]; do
+		found=true
+		whole="${BASH_REMATCH[0]}"
+		value="${BASH_REMATCH[${#BASH_REMATCH[@]} - 1]}"
+		pre="${whole%"$value"}"
+		rest="${rest#*"$whole"}"
+		if [[ ! "$pre" =~ $named_path ]] && [[ ! "$value" =~ $sample_word ]]; then
+			shopt -u nocasematch
+			return 0
+		fi
+	done
+	shopt -u nocasematch
+	# A line the candidate search took and this one does not read is not excused.
+	[ "$found" = true ] || return 0
 	return 1
 }
 hits=""
+candidates="$(printf '%s\n' "$added" | matching -iE -- "$prefix.*($generic)")" || exit 2
 while IFS= read -r record; do
 	[ -n "$record" ] || continue
 	text="${record#*"$SEP"}"; text="${text#*"$SEP"}"
 	if real_value "$text"; then hits+="$record"$'\n'; fi
-done <<< "$(printf '%s\n' "$added" | matching -iE -- "$prefix.*($generic)")"
+done <<< "$candidates"
 hits="${hits%$'\n'}"
 [ -z "$hits" ] || report "long value assigned to a secret-like name" "$hits"
 
