@@ -132,6 +132,7 @@ jobs:
           "$py" -I .github/scripts/ci/test_ci_environment.py
           "$py" -I .github/scripts/ci/test_ci_tree.py
           "$py" -I .github/scripts/ci/test_ci_pins.py
+          "$py" -I .github/scripts/codeql/test_codeql_paths.py
           "$py" -I .github/scripts/ci/test_ci_structure.py
           bash .github/scripts/hygiene/tests/check-dco.test.sh
           bash .github/scripts/hygiene/tests/check-commit-identity.test.sh
@@ -512,6 +513,15 @@ jobs:
       - name: clippy
         if: env.PLAN != 'false'
         run: cargo clippy --locked --package helmly-dashboard-server --all-targets -- -D warnings
+
+      # The CodeQL configuration leaves out test code. What it may leave out is measured here, with
+      # the compiler: `cargo check` of the library, the binaries and the build script (no tests)
+      # leaves the list of every source file that production is built from, and none of them may
+      # match a pattern of `paths-ignore`. It reuses the target directory that clippy filled.
+      - name: CodeQL leaves out no file that production is built from
+        if: env.PLAN != 'false'
+        working-directory: ${{ github.workspace }}
+        run: python3 -I .github/scripts/codeql/check_paths_ignore.py
 
   test:
     name: Test

@@ -8,6 +8,9 @@ name: CodeQL
 # alerts that already exist keep their identity. `javascript-typescript` is one CodeQL
 # language for the dashboard UI; Rust is the server and the CLI under `internal/`.
 # No build is needed for any of the three.
+#
+# The configuration file leaves out test code and nothing else (see the comments in it and the
+# test that guards it, `.github/scripts/codeql/test_codeql_paths.py`).
 
 on:
   pull_request:
@@ -51,6 +54,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+          config-file: ./.github/codeql/codeql-config.yml
 
       - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:

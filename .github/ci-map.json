@@ -9,6 +9,8 @@
     ".github/scripts/install-*.sh",
     ".github/scripts/release/**",
     ".github/scripts/hygiene/**",
+    ".github/codeql/**",
+    ".github/scripts/codeql/**",
     ".github/structure.json"
   ],
   "suites": {
