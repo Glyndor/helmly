@@ -26,17 +26,13 @@ target/
 *.swp
 *.swo
 
-# Agent / AI-tool artifacts — never commit (zero AI trace).
+# Local tooling scratch directories. A global gitignore and .git/info/exclude
+# cover them on the maintainer's machine, but neither travels with the repo, so
+# on a fresh clone or on CI they were unprotected: a single `git add -A` would
+# publish them. Listing them here keeps them out of the tree for everyone.
 .claude/
-.agents/
-.cursor/
-.aider*
-.continue/
+.superpowers/
 .playwright-mcp/
-**/*-mcp/
-AGENTS.md
-CLAUDE.md
-GEMINI.md
 
 # Python bytecode written when the CI scripts run locally
 __pycache__/
