@@ -196,6 +196,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -uo pipefail
           work="$(pwd)"
@@ -220,8 +221,14 @@ jobs:
               judge="$tmp/check_pins.py"
               from_base "$requirements" "$tmp/requirements.txt" || { echo "::error::the base has the pin check but not its requirements"; exit 1; }
               reader="$tmp/requirements.txt"
+            elif [ "$BASE_REF" = main ]; then
+              # main has not had a promotion since the check reached develop, so it has no script
+              # to judge with yet; the tree being promoted is develop's. Remove this branch, and
+              # BASE_REF with it, once a promotion has put the script on main.
+              echo "::notice::main has no pin check yet; this promotion brings it"
             else
-              echo "::notice::the base commit has no pin check yet; this change introduces it"
+              echo "::error::the base commit has no pin check, and only a promotion into main may lack it"
+              exit 1
             fi
           fi
 
