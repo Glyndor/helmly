@@ -6,12 +6,24 @@
       {
         "ordinal": 0,
         "name": "agents_total",
-        "type_info": "Int4"
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "migration_state",
+            "name": "agents_total"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "agents_confirmed",
-        "type_info": "Int4"
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "migration_state",
+            "name": "agents_confirmed"
+          }
+        }
       }
     ],
     "parameters": {

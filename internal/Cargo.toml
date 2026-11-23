@@ -15,13 +15,11 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 axum = { version = "0.8", features = ["macros", "ws"] }
-hyper = { version = "1", features = ["server", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors", "set-header", "limit"] }
 
 # database
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate", "ipnetwork", "macros"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "uuid", "chrono", "migrate", "ipnetwork", "macros"] }
 
 # cache
 redis = { version = "1.2", features = ["tokio-comp", "connection-manager"] }
@@ -48,8 +46,7 @@ tokio-rustls = "0.26"
 uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
-# WebSocket (agent client)
-tokio-tungstenite = { version = "0.29", features = ["rustls-tls-native-roots"] }
+# async helpers
 futures-util = "0.3"
 
 [profile.release]
