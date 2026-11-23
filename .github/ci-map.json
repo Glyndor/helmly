@@ -16,13 +16,15 @@
       "internal/.sqlx/**",
       "internal/dashboard/server/**",
       ".github/scripts/audit-urls.py",
-      "internal/.cargo/**"
+      "internal/.cargo/**",
+      "internal/dashboard/release-verify-key.b64"
     ],
     "ui": [
       "internal/dashboard/ui/**"
     ],
     "shell": [
-      "**/*.sh"
+      "**/*.sh",
+      "internal/dashboard/release-verify-key.b64"
     ]
   },
   "no_suite": [
