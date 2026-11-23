@@ -186,7 +186,13 @@ for form in \
 	"token: $v, cert_path: /$v" \
 	"token_file: \"your-$v\"; secret = \"$v\"" \
 	"let api_key_path: Map<String, u8> = x; let token = \"$v\";" \
-	"token_name: a, b, c = d, password := $v"; do
+	"token_name: a, b, c = d, password := $v" \
+	"token_path: Arc<Mutex<Option<Vec<u8>>>> = \"x\", password = \"$v\"" \
+	"token_path: Vec<u8>, password: Arc<Mutex<Option<Vec<u8>>>> = \"$v\"" \
+	"secret_file: Cow<'static, [u8]>, token = \"$v\"" \
+	"token_url: List[str], password: Dict[str, List[str]] = \"$v\"" \
+	"password_file: Vec<a> , token: Vec<b> = \"$v\"" \
+	"secret_path: Map<a;b> ; api_key: Map<c> = \"$v\""; do
 	out="$(scan "$form")"; rc=$?
 	check "a real credential after an excused one is found in [$(printf '%s' "$form" | sed "s/$v/VALUE/g")]" "1 1" "$rc $(printf '%s' "$out" | grep -c 'long value assigned to a secret-like name')"
 done
@@ -227,6 +233,10 @@ for form in \
 	"token: ClassVar[Optional[str]] = \"$v\"" \
 	"secret: Cow<'static, [u8]> = \"$v\";" \
 	"token: ClassVar[Optional[List[str]]] = \"$v\"" \
+	"token: Arc<Mutex<Option<Vec<u8>>>> = \"$v\"" \
+	"secret: Rc<RefCell<Option<Vec<Box<[u8]>>>>> = \"$v\";" \
+	"password: ClassVar[Optional[List[Dict[str, List[str]]]]] = \"$v\"" \
+	"let token: Mutex<HashMap<String, Vec<[u8; 32]>>> = \"$v\";" \
 	"let password: HashMap<String, Vec<u8>> = \"$v\";" \
 	"token_path: Dict[str, List[str]] = \"x\", password = \"$v\""; do
 	out="$(scan "$form")"; rc=$?
@@ -235,7 +245,9 @@ done
 for form in \
 	"token_path: Dict[str, List[str]] = \"$v\"" \
 	"let api_key_file: HashMap<String, Vec<u8>> = \"$v\";" \
-	"secret_url: Cow<'static, [u8]> = \"$v\";"; do
+	"secret_url: Cow<'static, [u8]> = \"$v\";" \
+	"token_path: Arc<Mutex<Option<Vec<u8>>>> = \"$v\"" \
+	"secret_file: Rc<RefCell<Option<Vec<Box<[u8]>>>>> = \"$v\";"; do
 	out="$(scan "$form")"; rc=$?
 	check "a nested type with a name that holds a path passes in [$(printf '%s' "$form" | sed "s/$v/VALUE/g")]" 0 "$rc"
 done
