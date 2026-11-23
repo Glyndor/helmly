@@ -1,0 +1,59 @@
+name: CodeQL
+
+# Every pull request into develop or main is analysed before it merges, and each of the
+# two branches again after the merge, so an alert shows up where the change enters and
+# not at the release. The weekly run catches a query added to the suite since.
+#
+# The category `/language:<language>` is the one GitHub's default setup used, so the
+# alerts that already exist keep their identity. `javascript-typescript` is one CodeQL
+# language for the dashboard UI; Rust is the server and the CLI under `internal/`.
+# No build is needed for any of the three.
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+# A newer push to a pull request supersedes the run in flight. A push to a branch or a
+# scheduled run is never cancelled, so every merge keeps its own result.
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+          - language: rust
+            build-mode: none
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          category: "/language:${{ matrix.language }}"
