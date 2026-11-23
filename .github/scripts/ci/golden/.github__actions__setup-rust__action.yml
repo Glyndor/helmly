@@ -1,0 +1,21 @@
+name: Set up Rust
+description: Install the toolchain pinned in internal/rust-toolchain.toml and restore the build cache of the calling job.
+runs:
+  using: composite
+  steps:
+    - name: Install the pinned toolchain
+      shell: bash
+      working-directory: internal
+      run: |
+        rustup toolchain install
+        rustc --version
+
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          internal/target
+        key: rust-${{ github.job }}-${{ runner.os }}-${{ hashFiles('internal/Cargo.lock', 'internal/rust-toolchain.toml') }}
+        restore-keys: rust-${{ github.job }}-${{ runner.os }}-

@@ -1,0 +1,43 @@
+{
+  "comment": "Which change runs which suite. Read by scripts/ci/decide.py (from the base commit of a pull request) and checked by scripts/ci/test_ci_map.py. A path matches a pattern when it fits the whole pattern: ** crosses directories, * does not cross one, ? is one character.",
+  "common": [
+    ".github/ci-map.json",
+    ".github/required-checks.json",
+    ".github/workflows/**",
+    ".github/scripts/ci/**",
+    ".github/actions/**",
+    ".github/scripts/install-*.sh"
+  ],
+  "suites": {
+    "server": [
+      "internal/Cargo.toml",
+      "internal/Cargo.lock",
+      "internal/rust-toolchain.toml",
+      "internal/.sqlx/**",
+      "internal/dashboard/server/**",
+      ".github/scripts/audit-urls.py",
+      "internal/.cargo/**"
+    ],
+    "ui": [
+      "internal/dashboard/ui/**"
+    ],
+    "shell": [
+      "**/*.sh"
+    ]
+  },
+  "no_suite": [
+    ".editorconfig",
+    ".github/CODEOWNERS",
+    ".github/dependabot.yml",
+    ".github/scripts/sign.py",
+    ".gitignore",
+    ".vscode/**",
+    "LICENSE",
+    "README.md",
+    "docs/**",
+    "internal/dashboard/.env.example",
+    "internal/dashboard/docker-compose.yml",
+    "internal/dashboard/nginx/**",
+    "internal/dashboard/secrets/**"
+  ]
+}

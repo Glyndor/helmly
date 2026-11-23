@@ -1,37 +1,70 @@
 version: 2
 
 updates:
+  # One pull request a week for every action bump that is not a major. Each
+  # pull request costs a full CI run, so a daily entry with no group opened a
+  # separate pull request per action. A major bump stays alone because it is
+  # the one that can break a workflow. Security updates ignore the schedule and
+  # the groups below.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily"
-    labels:
-      - "dependencies"
-      - "ci"
-    open-pull-requests-limit: 10
+      interval: "weekly"
+      day: "monday"
+    labels: ["type:deps", "type:ci", "prio:P3", "effort:XS"]
+    open-pull-requests-limit: 5
     target-branch: "develop"
-
-  - package-ecosystem: "cargo"
-    directory: "/lynx"
-    schedule:
-      interval: "daily"
-    labels:
-      - "dependencies"
-      - "rust"
-    open-pull-requests-limit: 10
-    target-branch: "develop"
-
-  - package-ecosystem: "bun"
-    directory: "/lynx/dashboard/ui"
-    schedule:
-      interval: "daily"
-    labels:
-      - "dependencies"
-      - "dashboard"
-    open-pull-requests-limit: 10
-    target-branch: "develop"
+    commit-message:
+      prefix: "ci(deps)"
+    cooldown:
+      default-days: 3
     groups:
-      types:
-        patterns: ["@types/*"]
+      actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # The dashboard server. The workspace manifest and its lockfile live in
+  # /internal, which holds the only Cargo.lock in the repository. Minor and
+  # patch bumps come together once a week; a major bump (for a 0.x crate, a
+  # minor one) stays one pull request per dependency because it needs a reading
+  # of its changelog.
+  - package-ecosystem: "cargo"
+    directory: "/internal"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["type:deps", "area:core", "prio:P3", "effort:XS"]
+    open-pull-requests-limit: 5
+    target-branch: "develop"
+    commit-message:
+      prefix: "chore(deps)"
+    cooldown:
+      default-days: 3
+    groups:
+      rust-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # The dashboard UI. Every dependency is pinned to an exact version
+  # (`bunfig.toml`: `exact = true`), so Dependabot proposes each move. Minor and
+  # patch bumps come together, with the Tailwind packages in their own group
+  # because they have to move at the same version. A group is matched first to
+  # last, so `tailwind` stays above `ui-minor-patch`. A major bump stays alone.
+  - package-ecosystem: "bun"
+    directory: "/internal/dashboard/ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["type:deps", "area:dashboard", "prio:P3", "effort:XS"]
+    open-pull-requests-limit: 5
+    target-branch: "develop"
+    commit-message:
+      prefix: "chore(deps)"
+    cooldown:
+      default-days: 3
+    groups:
       tailwind:
         patterns: ["tailwindcss", "@tailwindcss/*"]
+      ui-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

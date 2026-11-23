@@ -1,0 +1,218 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, scope, agent_id, kind, port, port_end, protocol,\n               ip_list, ip_version, rate_per_min, description,\n               priority, enabled, direction, created_by, created_at, updated_at\n        FROM nftables_rules\n        WHERE scope = 'global'\n        ORDER BY priority ASC, created_at ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "scope",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "scope"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "agent_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "agent_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "port",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "port"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "port_end",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "port_end"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "protocol",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "protocol"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "ip_list",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "ip_list"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "ip_version",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "ip_version"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "rate_per_min",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "rate_per_min"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "priority",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "priority"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "direction",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "direction"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "nftables_rules",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "9ac83fc6f92c179ef552bd00c922cf22eb1665a8248f931d18dcd4dcb9759cb9"
+}

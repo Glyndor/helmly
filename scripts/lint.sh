@@ -2,7 +2,7 @@
 # =============================================================================
 # lint.sh
 # =============================================================================
-# Description: Runs shellcheck static analysis on all Lynx shell scripts.
+# Description: Runs shellcheck static analysis on all Helmly shell scripts.
 #              Reports errors, warnings and style issues without executing them.
 #
 # Usage:
@@ -33,23 +33,19 @@ if ! command -v shellcheck &>/dev/null; then
 fi
 
 # -----------------------------------------------------------------------------
-# Collect all shell scripts
+# Collect all shell scripts: every tracked *.sh, so a new script is checked without
+# anyone remembering to add it to a list
 # -----------------------------------------------------------------------------
-SCRIPTS=(
-    "$ROOT_DIR/install.sh"
-    "$SCRIPT_DIR/detect-os.sh"
-    "$SCRIPT_DIR/remove-docker.sh"
-    "$SCRIPT_DIR/remove-firewall.sh"
-    "$SCRIPT_DIR/install-podman.sh"
-    "$SCRIPT_DIR/install-nftables.sh"
-    "$ROOT_DIR/lynx/dashboard/setup-dashboard.sh"
-    "$ROOT_DIR/lynx/dashboard/update-dashboard.sh"
-)
+mapfile -t SCRIPTS < <(git -C "$ROOT_DIR" ls-files '*.sh' | sed "s#^#$ROOT_DIR/#")
+if [[ "${#SCRIPTS[@]}" -eq 0 ]]; then
+    echo -e "${RED}Error: no tracked shell script found.${RESET}" >&2
+    exit 1
+fi
 
 # -----------------------------------------------------------------------------
 # Run shellcheck
 # -----------------------------------------------------------------------------
-echo -e "${BOLD}${CYAN}Lynx Shell Linter${RESET}\n"
+echo -e "${BOLD}${CYAN}Helmly Shell Linter${RESET}\n"
 
 ERRORS=0
 

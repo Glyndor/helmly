@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT migration_token_hash FROM migration_state WHERE id=1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "migration_token_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "migration_state",
+            "name": "migration_token_hash"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "622a1ace62157c5a964a283b5bd82259c595eeef4e3a6acd2a6699fc448d4c8a"
+}

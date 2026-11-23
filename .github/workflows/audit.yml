@@ -1,0 +1,77 @@
+# The dependency audits of the two branches that carry work, on a schedule. An advisory
+# appears without any file changing, so a pull request that touched nothing near it can
+# still be the first to fail; this finds it the day it is published. CI runs the same two
+# audits on every pull request and every push to develop. A cron only fires from the
+# default branch, which is why both branches are named here instead of the one that runs.
+#
+# There is one checkout, the one of the event, and the scripts and tools come from it. The
+# audited branch is fetched as a ref and only its lockfiles are read from it, with
+# `git show`, into a clean directory: nothing of that branch is checked out or executed,
+# and these jobs restore and save no cache. The cargo audit denies warnings, like the one of
+# pull requests and pushes, and what it accepts is written once, in internal/.cargo/audit.toml,
+# which is read from the audited branch with the lockfile.
+
+name: Dependency audit
+
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cargo:
+    name: Security audit (${{ matrix.ref }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: [develop, main]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Take the lockfile of the branch
+        env:
+          AUDITED: ${{ matrix.ref }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/ci/fetch-audit-data.sh" cargo
+
+      - name: Install cargo-audit
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/install-cargo-audit.sh"
+
+      - name: audit
+        working-directory: ${{ runner.temp }}/clean
+        run: cargo-audit audit --deny warnings --file "$RUNNER_TEMP/clean/Cargo.lock"
+
+  bun:
+    name: Security audit (bun) (${{ matrix.ref }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: [develop, main]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Take the lockfile of the branch
+        env:
+          AUDITED: ${{ matrix.ref }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/ci/fetch-audit-data.sh" bun
+
+      - name: Install bun
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/install-bun.sh"
+
+      - name: audit
+        working-directory: ${{ runner.temp }}/clean
+        run: bun audit --audit-level high
