@@ -232,8 +232,13 @@ generic_quote='(\\)?["'"'"']?'
 # `token: string = "..."`, `let k: Vec<u8> = ...`). A type never crosses into the next
 # assignment: a comma or a semicolon is part of it only inside `<...>` or `[...]`, so
 # `token_name: foo, password: "..."` is two assignments and not a typed one.
-generic_type_inner='[A-Za-z0-9_&'"'"',;:[:blank:]<>]'
-generic_type_group='(<'"$generic_type_inner"'*>|\['"$generic_type_inner"'*\])'
+generic_type_plain='[A-Za-z0-9_&'"'"',;:[:blank:]]'
+# Brackets nest to three levels (`Cow<'static, [u8]>`, `ClassVar[Optional[List[str]]]`): each
+# level is a group of `<...>` or `[...]` around plain characters and the level below it. Brackets
+# are balanced or they are not part of a type, so a comma outside them still ends it.
+generic_type_1='(<'"$generic_type_plain"'*>|\['"$generic_type_plain"'*\])'
+generic_type_2='(<('"$generic_type_plain"'|'"$generic_type_1"')*>|\[('"$generic_type_plain"'|'"$generic_type_1"')*\])'
+generic_type_group='(<('"$generic_type_plain"'|'"$generic_type_2"')*>|\[('"$generic_type_plain"'|'"$generic_type_2"')*\])'
 generic_annotation='('"$generic_blank"':'"$generic_blank"'[A-Za-z_&]([A-Za-z0-9_&'"'"']|[[:blank:]]|'"$generic_type_group"')*)?'
 # The operator is one or more characters (`=`, `:`, `:=`, `=>`, `==`), then the value. The name
 # is a group of its own, the first, and the value the last.

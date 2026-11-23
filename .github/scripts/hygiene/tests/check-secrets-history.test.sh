@@ -220,6 +220,26 @@ for form in \
 	check "an excused form with a backslash passes in [$(printf '%s' "$form" | sed "s/$v/VALUE/g")]" 0 "$rc"
 done
 
+# Brackets in a type nest. The credential is found whatever the depth of the type, and a name
+# that holds a path keeps its excuse with a nested type; a comma outside the brackets still ends
+# the type, so the credential after it is the second assignment's own.
+for form in \
+	"token: ClassVar[Optional[str]] = \"$v\"" \
+	"secret: Cow<'static, [u8]> = \"$v\";" \
+	"token: ClassVar[Optional[List[str]]] = \"$v\"" \
+	"let password: HashMap<String, Vec<u8>> = \"$v\";" \
+	"token_path: Dict[str, List[str]] = \"x\", password = \"$v\""; do
+	out="$(scan "$form")"; rc=$?
+	check "a nested type does not hide an assignment in [$(printf '%s' "$form" | sed "s/$v/VALUE/g")]" "1 1" "$rc $(printf '%s' "$out" | grep -c 'long value assigned to a secret-like name')"
+done
+for form in \
+	"token_path: Dict[str, List[str]] = \"$v\"" \
+	"let api_key_file: HashMap<String, Vec<u8>> = \"$v\";" \
+	"secret_url: Cow<'static, [u8]> = \"$v\";"; do
+	out="$(scan "$form")"; rc=$?
+	check "a nested type with a name that holds a path passes in [$(printf '%s' "$form" | sed "s/$v/VALUE/g")]" 0 "$rc"
+done
+
 echo "$pass passed, $fail failed"
 printf 'DONE %s %d %d\n' "${BASH_SOURCE[0]##*/}" "$pass" "$fail"
 [ "$fail" -eq 0 ]
