@@ -25,10 +25,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import ci_map  # noqa: E402
 import decide  # noqa: E402
-from ci_common import ROOT, ci_files, load_yaml, workflow_files  # noqa: E402
+from ci_common import ROOT, ci_files, load_yaml, unpin_ref, workflow_files  # noqa: E402
 
 WORKFLOWS = ROOT / ".github/workflows"
-CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+CHECKOUT = "actions/checkout@<sha>"  # the commit is Dependabot's to move; see ci_common.unpin_ref
 PLAN_IF = "env.PLAN != 'false'"
 PLANNER_REF = "${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}"
 SUITES = {
@@ -78,7 +78,7 @@ COMMANDS = {
         ("run", "bun x playwright install chromium --with-deps"),
         ("run", "bun run build"),
         ("run", "bun run test:e2e"),
-        ("uses", "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"),
+        ("uses", "actions/upload-artifact@<sha>"),
     ],
     "shellcheck": [
         CHECKOUT_STEP,
@@ -105,7 +105,7 @@ def load(name: str) -> dict:
 
 def kind(step: dict) -> "tuple[str, str]":
     if "uses" in step:
-        return "uses", step["uses"]
+        return "uses", unpin_ref(step["uses"])
     return "run", step["run"]
 
 
@@ -181,7 +181,7 @@ class ThePlannerIsTheBases(unittest.TestCase):
 
     def test_the_planner_checks_out_the_base_commit_of_a_pull_request(self):
         first = self.job["steps"][0]
-        self.assertEqual(first["uses"], CHECKOUT)
+        self.assertEqual(unpin_ref(first["uses"]), CHECKOUT)
         self.assertEqual(first["with"], {"ref": PLANNER_REF, "fetch-depth": "0", "persist-credentials": "false"})
 
     def test_no_other_step_of_the_planner_checks_out_code_or_changes_the_tree(self):

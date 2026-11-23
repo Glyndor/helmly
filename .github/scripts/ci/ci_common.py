@@ -1,6 +1,7 @@
 """What the CI test files share: the repository root, the reference copies and the one
 enumerator of the files GitHub may run as CI."""
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -69,6 +70,26 @@ def load_yaml(text: str):
 
 def ci_text() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
+
+
+# What Dependabot moves in a workflow, and nothing else: the commit of an action (with the version
+# comment that names it) and the digest of an image. Everything else is compared exactly.
+_ACTION_PIN = re.compile(r"(\buses:[ \t]+[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+)@[0-9a-f]{40}(?:[ \t]+#[ \t]*v[0-9][0-9A-Za-z.+-]*)?")
+_IMAGE_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}\b")
+# A remote action as the workflows must write it: owner/name[/path]@<40 hex>  # vX.Y.Z
+REMOTE_USES = re.compile(r"^[ \t]*(?:- )?uses:[ \t]+(?!\./)(?P<ref>\S+)(?P<rest>.*)$", re.M)
+FULL_PIN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}$")
+VERSION_COMMENT = re.compile(r"^[ \t]+#[ \t]*v[0-9][0-9A-Za-z.+-]*[ \t]*$")
+
+
+def unpin(text: str) -> str:
+    """The text with the value of its pins replaced by a placeholder. A pin written any other way
+    (a tag, a short hash, no `@`) is left as it is, so it differs from a pinned reference."""
+    return _IMAGE_DIGEST.sub("@sha256:<digest>", _ACTION_PIN.sub(r"\1@<sha>", text))
+
+
+def unpin_ref(uses: str) -> str:
+    return re.sub(r"@[0-9a-f]{40}$", "@<sha>", uses)
 
 
 def references() -> "dict[pathlib.Path, pathlib.Path]":

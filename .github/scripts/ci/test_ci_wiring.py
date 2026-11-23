@@ -26,7 +26,21 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import ci_map  # noqa: E402
 from wiring import run_block, split_jobs, strip_comments  # noqa: E402
 
-from ci_common import GOLDEN, ROOT, WORKFLOW, ci_files, ci_text, load_yaml, reference_of, references, workflow_files  # noqa: E402
+from ci_common import (  # noqa: E402
+    FULL_PIN,
+    GOLDEN,
+    REMOTE_USES,
+    ROOT,
+    VERSION_COMMENT,
+    WORKFLOW,
+    ci_files,
+    ci_text,
+    load_yaml,
+    reference_of,
+    references,
+    unpin,
+    workflow_files,
+)
 
 SUITE_JOBS = {
     "fmt": "server",
@@ -45,14 +59,56 @@ GATE_STEP = "Every suite passed, or the plan left it out"
 
 
 class WholeFilesAreAsReviewed(unittest.TestCase):
-    def test_every_file_the_ci_runs_is_byte_for_byte_its_reference(self):
+    def test_every_file_the_ci_runs_is_its_reference_but_for_the_value_of_its_pins(self):
         for actual, reference in references().items():
             self.assertTrue(reference.exists(), f"{actual.relative_to(ROOT)} has no reference copy")
             self.assertEqual(
-                actual.read_bytes(),
-                reference.read_bytes(),
+                unpin(actual.read_bytes().decode("utf-8")),
+                unpin(reference.read_bytes().decode("utf-8")),
                 f"{actual.relative_to(ROOT)} differs from {reference.relative_to(ROOT)}",
             )
+
+    def test_every_remote_action_is_pinned_to_a_full_commit_with_its_version_in_a_comment(self):
+        seen = 0
+        for path in ci_files():
+            for match in REMOTE_USES.finditer(path.read_text(encoding="utf-8")):
+                seen += 1
+                where = f"{path.relative_to(ROOT)}: {match.group(0).strip()}"
+                self.assertRegex(match.group("ref"), FULL_PIN, where)
+                self.assertRegex(match.group("rest"), VERSION_COMMENT, where)
+        self.assertGreater(seen, 20)
+
+    def test_a_pin_moved_the_way_dependabot_moves_it_still_matches_the_reference(self):
+        base = "      - uses: actions/checkout@" + "a" * 40 + " # v7.0.1\n        image: valkey/valkey:8-alpine@sha256:" + "b" * 64 + "\n"
+        moved = "      - uses: actions/checkout@" + "c" * 40 + " # v7.1.0\n        image: valkey/valkey:8-alpine@sha256:" + "d" * 64 + "\n"
+        self.assertEqual(unpin(base), unpin(moved))
+        self.assertEqual(unpin("uses: github/codeql-action/init@" + "a" * 40 + " # v4.39.4"), unpin("uses: github/codeql-action/init@" + "e" * 40 + " # v4.40.0"))
+
+    def test_anything_but_the_value_of_a_pin_changing_still_differs_from_the_reference(self):
+        sha = "a" * 40
+        base = f"uses: actions/checkout@{sha} # v7.0.1\nimage: valkey/valkey:8-alpine@sha256:" + "b" * 64 + "\n"
+        for what, changed in (
+            ("another action", base.replace("actions/checkout", "actions/cache")),
+            ("another owner", base.replace("actions/checkout", "evil/checkout")),
+            ("the pin removed", base.replace(f"@{sha} # v7.0.1", "")),
+            ("a tag instead of a commit", base.replace(f"@{sha} # v7.0.1", "@v7")),
+            ("a short hash", base.replace(sha, "a" * 39)),
+            ("a hash of the wrong alphabet", base.replace(sha, "g" * 40)),
+            ("another image", base.replace("valkey/valkey", "evil/valkey")),
+            ("another tag of the image", base.replace("8-alpine", "9-alpine")),
+            ("the digest removed", base.replace("@sha256:" + "b" * 64, "")),
+            ("a short digest", base.replace("b" * 64, "b" * 63)),
+            ("a line added", base + "run: x\n"),
+            ("a comment that is not a version", base.replace("# v7.0.1", "# trusted")),
+            ("a second uses of the same action", base + base),
+        ):
+            with self.subTest(what):
+                self.assertNotEqual(unpin(base), unpin(changed))
+
+    def test_the_unpin_does_not_touch_a_local_action_or_a_step_name(self):
+        text = "- uses: ./.github/actions/setup-rust\n- name: uses: actions/checkout@" + "a" * 40 + "\n"
+        self.assertEqual(unpin("- uses: ./.github/actions/setup-rust\n"), "- uses: ./.github/actions/setup-rust\n")
+        self.assertIn("@<sha>", unpin(text))
 
     def test_the_references_are_exactly_the_files(self):
         found = {p for p in GOLDEN.rglob("*") if p.is_file()}
