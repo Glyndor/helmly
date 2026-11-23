@@ -64,6 +64,8 @@ STEP_ENV = {('ci.yml', 'decide', 1): {'PR': '${{ github.event.pull_request.numbe
  ('ci.yml', 'pins', 1): {'EVENT': '${{ github.event_name }}',
                          'BASE_SHA': '${{ github.event.pull_request.base.sha }}',
                          'BASE_REF': '${{ github.event.pull_request.base.ref }}'},
+ ('ci.yml', 'commits', 1): {'BASE_SHA': '${{ github.event.pull_request.base.sha }}',
+                            'HEAD_SHA': '${{ github.event.pull_request.head.sha }}'},
  ('ci.yml', 'fmt', 0): {'NEEDS': '${{ toJSON(needs) }}'},
  ('ci.yml', 'urls', 0): {'NEEDS': '${{ toJSON(needs) }}'},
  ('ci.yml', 'clippy', 0): {'NEEDS': '${{ toJSON(needs) }}'},

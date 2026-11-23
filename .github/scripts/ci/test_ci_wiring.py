@@ -49,7 +49,7 @@ SUITE_JOBS = {
     "e2e": "ui",
     "shellcheck": "shell",
 }
-ALWAYS_JOBS = ("map", "tree", "pins", "audit", "audit-bun")
+ALWAYS_JOBS = ("map", "tree", "pins", "commits", "audit", "audit-bun")
 ALL_JOBS = set(SUITE_JOBS) | set(ALWAYS_JOBS) | {"decide", "gate"}
 GUARD_STEP = "Check the plan and what this job needs"
 GATE_STEP = "Every suite passed, or the plan left it out"
@@ -129,6 +129,12 @@ class ExactShape(unittest.TestCase):
         for name in SUITE_JOBS:
             self.assertNotIn("== 'true'", self.jobs[name], name)
 
+    def test_every_shell_test_of_the_hygiene_checks_is_run_by_the_map_job(self):
+        tests = sorted((ROOT / ".github/scripts/hygiene/tests").glob("*.test.sh"))
+        self.assertEqual(len(tests), 4)
+        for test in tests:
+            self.assertIn(f"bash {test.relative_to(ROOT).as_posix()}", self.jobs["map"], test.name)
+
     def test_every_test_of_the_ci_scripts_is_run_by_the_map_job(self):
         tests = sorted((ROOT / ".github/scripts").rglob("test_*.py"))
         self.assertTrue(tests)
@@ -142,7 +148,7 @@ class ExactShape(unittest.TestCase):
         self.assertLess(install, first)
         self.assertIn('"$RUNNER_TEMP/venv/bin/pip" install --quiet --only-binary=:all: --require-hashes -r .github/scripts/ci/requirements.txt', body)
         self.assertIn('py="$RUNNER_TEMP/venv/bin/python"', body)
-        self.assertNotIn("secrets.", body)
+        self.assertNotIn("${{ secrets.", body)
         self.assertNotIn("python3 .github/scripts/ci/test_", body)
         requirements = (ROOT / ".github/scripts/ci/requirements.txt").read_text(encoding="utf-8")
         self.assertRegex(requirements, r"^PyYAML==\d+\.\d+\.\d+ \\\n(    --hash=sha256:[0-9a-f]{64}( \\)?\n)+$")

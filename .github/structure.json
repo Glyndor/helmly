@@ -1,0 +1,26 @@
+{
+  "files": {
+    "internal/dashboard/server/src/agents/ws_hub.rs": {
+      "ceiling": 507,
+      "reason": "Seven lines over the limit. It splits along the hub's message kinds the next time the file is changed for a reason of its own; the ceiling can only go down."
+    },
+    "internal/dashboard/server/tests/auth.rs": {
+      "ceiling": 657,
+      "reason": "One integration-test binary: every test shares the helpers and the seeded administrator of that binary, and Cargo builds one binary per file in tests/. It splits when the helpers move into a module of their own; the ceiling can only go down."
+    },
+    "internal/dashboard/setup-dashboard.sh": {
+      "ceiling": 1190,
+      "reason": "The installer is downloaded and run as one file by the install script, so it cannot be split across files without that download learning to fetch more than one, and that is a change to the one link of the install chain that has its own signature check. The ceiling can only go down."
+    }
+  },
+  "folders": {
+    "internal/dashboard/server/migrations": {
+      "ceiling": 28,
+      "reason": "sqlx reads its migrations from one flat folder, in the order of their numbers, and an applied migration is never edited or moved. The ceiling grows by one with each migration and the folder cannot be split."
+    },
+    "internal/dashboard/ui/src/components/ui": {
+      "ceiling": 51,
+      "reason": "The shadcn/ui components the interface is built from, one file each, in the one folder its tooling writes to and its imports expect. The ceiling can only go down."
+    }
+  }
+}

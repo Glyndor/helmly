@@ -132,6 +132,11 @@ jobs:
           "$py" -I .github/scripts/ci/test_ci_environment.py
           "$py" -I .github/scripts/ci/test_ci_tree.py
           "$py" -I .github/scripts/ci/test_ci_pins.py
+          "$py" -I .github/scripts/ci/test_ci_structure.py
+          bash .github/scripts/hygiene/tests/check-dco.test.sh
+          bash .github/scripts/hygiene/tests/check-commit-identity.test.sh
+          bash .github/scripts/hygiene/tests/check-secrets.test.sh
+          bash .github/scripts/hygiene/tests/check-secrets-history.test.sh
 
   # Checks of the whole tree. They have no plan and no condition: a check that depends on which
   # files changed is one a change can avoid by touching other files, and the retired release key
@@ -158,18 +163,38 @@ jobs:
         run: |
           set -uo pipefail
           bad=0
-          tmp="$RUNNER_TEMP/tree"
-          mkdir -p "$tmp"
+          tmp="$(mktemp -d)"
+
+          # Copy a file of the base commit to $2. Returns 1 when the base has no such file, and
+          # stops the step for any other failure: not being able to read is not being absent.
+          from_base() {
+            local listing
+            listing="$(git ls-tree "$BASE_SHA" -- "$1")" || { echo "::error::cannot list $1 in the base commit"; exit 1; }
+            [ -n "$listing" ] || return 1
+            git show "$BASE_SHA:$1" > "$2" || { echo "::error::cannot read $1 in the base commit"; exit 1; }
+          }
+
           if [ "$EVENT" = pull_request ]; then
-            if git show "$BASE_SHA:.github/scripts/ci/tree_checks.py" > "$tmp/tree_checks.py" 2>/dev/null; then
+            git cat-file -e "$BASE_SHA^{commit}" || { echo "::error::the base commit is not in the checkout"; exit 1; }
+            if from_base .github/scripts/ci/tree_checks.py "$tmp/tree_checks.py"; then
               echo "== judged with the script of the base commit"
-              python3 "$tmp/tree_checks.py" || bad=1
+              python3 -I "$tmp/tree_checks.py" || bad=1
             else
               echo "::notice::the base commit has no tree checks yet; this change introduces them"
             fi
+            # The limits are the base's: a folder the base does not list is held to the default,
+            # so an exception added in this change does not approve itself.
+            if from_base .github/scripts/ci/structure.py "$tmp/structure.py"; then
+              from_base .github/structure.json "$tmp/structure.json" || { echo "::error::the base has the structure check but not its exceptions"; exit 1; }
+              echo "== structure judged with the script and the exceptions of the base commit"
+              python3 -I "$tmp/structure.py" --exceptions "$tmp/structure.json" || bad=1
+            else
+              echo "::notice::the base commit has no structure check yet; this change introduces it"
+            fi
           fi
-          echo "== judged with the script of this tree"
-          python3 .github/scripts/ci/tree_checks.py || bad=1
+          echo "== judged with the scripts of this tree"
+          python3 -I .github/scripts/ci/tree_checks.py || bad=1
+          python3 -I .github/scripts/ci/structure.py --exceptions .github/structure.json || bad=1
           exit "$bad"
 
   # Judges the value of the pins. The comparison with the reference copies ignores it, so that
@@ -247,6 +272,59 @@ jobs:
           else
             "$tmp/venv/bin/python" -I "$script" || bad=1
           fi
+          exit "$bad"
+
+  # The commits a pull request adds: a sign-off on each (and no merge that carries a change of its
+  # own), only GitHub noreply addresses in the author, the trailers and the committer of a merge,
+  # and no line shaped like a credential. History cannot be taken back, so these run before a
+  # merge and not after. The script that judges is the one of the base commit, because the
+  # checkout is the pull request's own tree and a change that rewrote the check would be the one
+  # deciding whether it passes; the tree's copy is used only when the base has none, the change
+  # that introduces it. On a push there is nothing to judge, because the pull request was.
+  commits:
+    name: Commit checks
+    runs-on: ubuntu-latest
+    # A checkout of the history and three loops over the commits of the change.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Sign-off, identity and credentials of the commits of the pull request
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          bad=0
+          tmp="$(mktemp -d)"
+
+          # Copy a file of the base commit to $2. Returns 1 when the base has no such file, and
+          # stops the step for any other failure: not being able to read is not being absent.
+          from_base() {
+            local listing
+            listing="$(git ls-tree "$BASE_SHA" -- "$1")" || { echo "::error::cannot list $1 in the base commit"; exit 1; }
+            [ -n "$listing" ] || return 1
+            git show "$BASE_SHA:$1" > "$2" || { echo "::error::cannot read $1 in the base commit"; exit 1; }
+          }
+
+          git cat-file -e "$BASE_SHA^{commit}" || { echo "::error::the base commit is not in the checkout"; exit 1; }
+          for tool in check-dco check-commit-identity check-secrets; do
+            if from_base ".github/scripts/hygiene/$tool.sh" "$tmp/$tool.sh"; then
+              echo "== $tool, judged with the script of the base commit"
+            else
+              echo "::notice::the base commit has no $tool yet; this change introduces it"
+              cp ".github/scripts/hygiene/$tool.sh" "$tmp/$tool.sh"
+            fi
+          done
+          for tool in check-dco check-commit-identity check-secrets; do
+            echo "== $tool"
+            bash "$tmp/$tool.sh" "$BASE_SHA" "$HEAD_SHA" || bad=1
+          done
           exit "$bad"
 
   # ---- server: cheap tier ----------------------------------------------------
@@ -761,7 +839,7 @@ jobs:
   # `decide` succeeded and every job succeeded or was left out because the plan said so.
   gate:
     name: ${{ github.event_name == 'pull_request' && (github.event.pull_request.base.ref == 'main' && 'CI gate (main)' || 'CI gate') || format('CI gate ({0})', github.event_name) }}
-    needs: [decide, map, tree, pins, fmt, urls, audit, clippy, test, typecheck, unit, audit-bun, e2e, shellcheck]
+    needs: [decide, map, tree, pins, commits, fmt, urls, audit, clippy, test, typecheck, unit, audit-bun, e2e, shellcheck]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

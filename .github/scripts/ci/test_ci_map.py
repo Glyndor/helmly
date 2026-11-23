@@ -126,6 +126,11 @@ EXPECTED_SUITES = {
     ".github/scripts/ci/wiring.py": EVERYTHING,
     ".github/scripts/ci/ci_common.py": EVERYTHING,
     ".github/scripts/ci/requirements.txt": EVERYTHING,
+    ".github/scripts/ci/structure.py": EVERYTHING,
+    ".github/scripts/ci/test_ci_structure.py": EVERYTHING,
+    ".github/scripts/hygiene/check-secrets.sh": EVERYTHING,
+    ".github/scripts/hygiene/tests/check-dco.test.sh": EVERYTHING,
+    ".github/structure.json": EVERYTHING,
     ".github/scripts/ci/tree_checks.py": EVERYTHING,
     ".github/scripts/ci/test_ci_contract.py": EVERYTHING,
     ".github/scripts/ci/test_ci_tree.py": EVERYTHING,
@@ -175,6 +180,8 @@ class MapIsExact(unittest.TestCase):
                 ".github/actions/**",
                 ".github/scripts/install-*.sh",
                 ".github/scripts/release/**",
+                ".github/scripts/hygiene/**",
+                ".github/structure.json",
             ]),
         )
 

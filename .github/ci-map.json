@@ -7,7 +7,9 @@
     ".github/scripts/ci/**",
     ".github/actions/**",
     ".github/scripts/install-*.sh",
-    ".github/scripts/release/**"
+    ".github/scripts/release/**",
+    ".github/scripts/hygiene/**",
+    ".github/structure.json"
   ],
   "suites": {
     "server": [

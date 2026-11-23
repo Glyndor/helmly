@@ -337,19 +337,22 @@ class EachSuiteRunsItsCommand(unittest.TestCase):
 
     def test_the_jobs_without_a_plan_have_none_and_do_not_wait_for_it(self):
         for job in ALWAYS:
+            if job == "commits":
+                continue
             body = self.doc["jobs"][job]
             for key in ("if", "needs", "env"):
                 self.assertNotIn(key, body, job)
             for step in body["steps"]:
                 self.assertNotIn("if", step, job)
 
-    def test_only_the_planner_names_a_ref_to_check_out(self):
+    def test_only_the_planner_and_the_commit_checks_name_a_ref_to_check_out(self):
         for name in ("ci.yml", "audit.yml", "codeql.yml"):
             for job, body in load(name)["jobs"].items():
                 for step in body["steps"]:
                     if str(step.get("uses", "")).startswith("actions/checkout"):
                         has_ref = "ref" in step.get("with", {})
-                        self.assertEqual(has_ref, (name, job) == ("ci.yml", "decide"), f"{name}:{job}")
+                        # the planner reads the base commit; the commit checks read the head
+                        self.assertEqual(has_ref, (name, job) in (("ci.yml", "decide"), ("ci.yml", "commits")), f"{name}:{job}")
                         self.assertEqual(step["with"].get("persist-credentials"), "false", f"{name}:{job}")
 
 
@@ -374,6 +377,58 @@ class TheAggregate(unittest.TestCase):
         self.assertIn('exit 1', run)
         for forbidden in ("|| true", "exit 0\n", "continue"):
             self.assertNotIn(forbidden, run)
+
+
+class TheCommitChecks(unittest.TestCase):
+    def setUp(self):
+        self.job = load("ci.yml")["jobs"]["commits"]
+
+    def test_the_job_always_runs_and_only_its_step_is_for_pull_requests(self):
+        for key in ("if", "needs", "env", "continue-on-error", "defaults", "strategy"):
+            self.assertNotIn(key, self.job)
+        self.assertEqual(self.job["name"], "Commit checks")
+        self.assertEqual(len(self.job["steps"]), 2)
+        self.assertNotIn("if", self.job["steps"][0])
+        self.assertEqual(self.job["steps"][1]["if"], "github.event_name == 'pull_request'")
+
+    def test_it_reads_the_history_of_the_head_commit_without_credentials(self):
+        first = self.job["steps"][0]
+        self.assertEqual(unpin_ref(first["uses"]), CHECKOUT)
+        self.assertEqual(
+            first["with"],
+            {"ref": "${{ github.event.pull_request.head.sha || github.sha }}", "fetch-depth": "0", "persist-credentials": "false"},
+        )
+
+    def test_the_range_is_the_base_and_the_head_of_the_event_and_the_judge_is_the_base_copy(self):
+        step = self.job["steps"][1]
+        self.assertEqual(
+            step["env"],
+            {"BASE_SHA": "${{ github.event.pull_request.base.sha }}", "HEAD_SHA": "${{ github.event.pull_request.head.sha }}"},
+        )
+        run = step["run"]
+        self.assertIn("for tool in check-dco check-commit-identity check-secrets; do", run)
+        self.assertIn('if from_base ".github/scripts/hygiene/$tool.sh" "$tmp/$tool.sh"; then', run)
+        self.assertIn('bash "$tmp/$tool.sh" "$BASE_SHA" "$HEAD_SHA" || bad=1', run)
+        self.assertIn('git cat-file -e "$BASE_SHA^{commit}" ||', run)
+        self.assertNotIn("2>/dev/null", run)
+        # every script of the base is in place before any of them runs
+        self.assertLess(run.index("from_base \".github/scripts/hygiene/$tool.sh\""), run.index('bash "$tmp/$tool.sh"'))
+        self.assertIn('exit "$bad"', run)
+        self.assertNotIn("${{", run)
+
+    def test_the_three_scripts_exist_with_their_tests(self):
+        for tool in ("check-dco", "check-commit-identity", "check-secrets"):
+            self.assertTrue((ROOT / f".github/scripts/hygiene/{tool}.sh").is_file(), tool)
+            self.assertTrue((ROOT / f".github/scripts/hygiene/tests/{tool}.test.sh").is_file(), tool)
+
+
+    def test_the_scripts_and_their_tests_are_executable_in_git_because_the_tests_run_them_directly(self):
+        listing = subprocess.run(
+            ["git", "ls-files", "-s", ".github/scripts/hygiene"], cwd=ROOT, capture_output=True, text=True, check=True
+        ).stdout.splitlines()
+        self.assertEqual(len(listing), 7)
+        for line in listing:
+            self.assertTrue(line.startswith("100755 "), line)
 
 
 class TheTriggers(unittest.TestCase):
